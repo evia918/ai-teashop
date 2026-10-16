@@ -27,6 +27,10 @@
   #editor textarea { flex: 1; min-height: 160px; resize: none; font-family: Consolas, "Courier New", "Microsoft JhengHei", monospace;
     font-size: 13px; line-height: 1.45; white-space: pre; tab-size: 2; }
   #editor .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  #editor .reqrow { display: flex; gap: 8px; }
+  #editor .reqrow input { flex: 1; min-width: 0; }
+  #editor .reqrow button { white-space: nowrap; }
+  #editor .lbl { font-weight: bold; color: #ffe9c7; font-size: 14px; margin-top: 4px; }
   #editor button { padding: 7px 12px; border: 0; border-radius: 6px; background: #5a4030; color: #fff; font: inherit; cursor: pointer; }
   #editor button:hover { filter: brightness(1.2); }
   #editor button.main { background: #ff7a59; font-weight: bold; }
@@ -46,10 +50,13 @@
 <button id="editBtn" title="修改店舖設定（快捷鍵 E）">✏️ 修改店舖（E）</button>
 <div id="editor">
   <h2>✏️ 修改店舖設定 <button class="x" id="edClose" title="關閉（Esc）">✕</button></h2>
-  <p class="steps">① 寫下想改什麼 → ② 按「複製給 AI」，貼到 ChatGPT／Gemini<br>
-    ③ 把 AI 的回答貼到下面的框（先按 Ctrl+A 全選再貼上，``` 也可以一起貼）→ ④ 按「套用」</p>
-  <input id="edReq" placeholder="例：把菜單改成 珍奶 55 元、冬瓜茶 25 元、檸檬紅茶 40 元">
-  <div class="row"><button class="main" id="edCopy">📋 複製給 AI</button></div>
+  <label class="lbl" for="edReq">① 想改什麼？寫好按 Enter 或右邊的按鈕</label>
+  <div class="reqrow">
+    <input id="edReq" placeholder="例：把營業時間改成 120 秒">
+    <button class="main" id="edCopy">📋 複製給 AI</button>
+  </div>
+  <p class="steps">「需求＋目前的店舖設定」會一起複製，到 ChatGPT／Gemini 按 Ctrl+V 貼上送出。</p>
+  <label class="lbl" for="edCode">② 把 AI 的回答貼在這裡（先按 Ctrl+A 全選再貼上，``` 和說明文字一起貼也可以），再按「套用」</label>
   <textarea id="edCode" spellcheck="false"></textarea>
   <div class="row">
     <button class="ok" id="edApply">✅ 套用</button>
@@ -1034,6 +1041,44 @@ requestAnimationFrame(loop);
   // 遊戲目前的設定值（貼上的程式碼沒寫到的項目，就沿用這些）
   const currentValues = () => ({ SHOP_NAME, MENU, TOPPINGS, TOPPING_PRICE, SUGAR, ICE, GAME_TIME, RANKS, DEMOTE_LOST,
                                  DWELL_TIME, LAYOUT_WIDTH, TIP_RATE, WRONG_COST, CUSTOMERS });
+
+  // 把遊戲目前的設定寫回成「完整的店舖設定區」程式碼（含說明註解），給 AI 看全部的設定
+  function fullCode() {
+    const c = currentValues(), q = s => JSON.stringify(s);
+    const obj = (o, keys) => "{ " + keys.map(k => `${k}: ${typeof o[k] === "string" ? q(o[k]) : o[k]}`).join(", ") + " }";
+    const list = (arr, keys) => arr.length ? "[\n" + arr.map(o => "  " + obj(o, keys) + ",").join("\n") + "\n]" : "[]";
+    const strs = arr => "[" + arr.map(q).join(", ") + "]";
+    return [
+      "// 【店舖設定區】",
+      "// ---- 學生設計：點餐表單 → AI 產生這一段 ----",
+      `let SHOP_NAME = ${q(c.SHOP_NAME)};`,
+      "",
+      "// 飲料菜單（最多 5 項）：name 名稱 / price 售價 / color 杯中液體顏色 / emoji 圖示",
+      `let MENU = ${list(c.MENU, ["name", "price", "color", "emoji"])};`,
+      "",
+      "// 加料（0～5 項，可以不加料）：name 名稱 / color 杯底配料顏色 / emoji 圖示",
+      `let TOPPINGS = ${list(c.TOPPINGS, ["name", "color", "emoji"])};`,
+      `let TOPPING_PRICE = ${c.TOPPING_PRICE};   // 加料價格（每種加料都一樣，元）`,
+      "",
+      "// ---- 遊戲參數 ----",
+      `let SUGAR = ${strs(c.SUGAR)};   // 糖度選項（最多 6 項）`,
+      `let ICE   = ${strs(c.ICE)};   // 冰塊選項（最多 5 項）`,
+      "",
+      `let GAME_TIME  = ${c.GAME_TIME};  // 營業時間上限（秒）：時間到就以目前職等結算`,
+      "",
+      "// 店員職等：name 名稱 / badge 徽章 / patience 顧客耐心（秒）/ goal 這一階做對幾杯就晉升",
+      "// 最後一階再達標＝完成任務，頒發認證",
+      `let RANKS = ${list(c.RANKS, ["name", "badge", "patience", "goal"])};`,
+      `let DEMOTE_LOST = ${c.DEMOTE_LOST};   // 同一階流失幾位顧客就降一階（最低階再降＝遊戲結束）`,
+      "",
+      `let DWELL_TIME = ${c.DWELL_TIME};  // 杯子停在站點多久算「選取」（秒）`,
+      `let LAYOUT_WIDTH = ${c.LAYOUT_WIDTH}; // 站點只排在畫面中間的比例`,
+      `let TIP_RATE   = ${c.TIP_RATE};  // 小費比例：出餐越快，小費越多`,
+      `let WRONG_COST = ${c.WRONG_COST};   // 做錯一杯的材料損失（元）`,
+      `let CUSTOMERS  = ${strs(c.CUSTOMERS)};`,
+      "",
+    ].join("\n");
+  }
   const STORE_KEY = "bubbleTeaShop.v3.shopConfig";
   const $ = id => document.getElementById(id);
   const panel = $("editor"), codeBox = $("edCode"), reqBox = $("edReq"), msgBox = $("edMsg"), errBtn = $("edErrCopy");
@@ -1252,7 +1297,15 @@ requestAnimationFrame(loop);
       "```javascript\n" + code.trim() + "\n```\n";
   }
 
+  // 在需求框按 Enter＝按「複製給 AI」
+  reqBox.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); $("edCopy").click(); }
+  });
   $("edCopy").onclick = async () => {
+    if (!reqBox.value.trim()) {
+      setMsg("err", "✘ 請先在 ① 的框寫下想改什麼，例如「把營業時間改成 120 秒」，再按「複製給 AI」。");
+      errBtn.style.display = "none"; reqBox.focus(); return;
+    }
     // 框裡是正常的設定就用框裡的（學生可能先手動改過）；空的或貼了 HTML 就用遊戲目前的設定
     const raw = codeBox.value;
     const code = raw.trim() && !looksLikeHTML(raw) ? cleanCode(raw) : currentCode;
@@ -1282,10 +1335,11 @@ requestAnimationFrame(loop);
       return;
     }
     applyConfig(r.cfg);
-    currentCode = r.code; codeBox.value = r.code;
-    storage.set(r.code); updateBtn();
+    // 框裡換成「完整設定」：之後再按「複製給 AI」，AI 才看得到營業時間、職等這些沒貼到的設定
+    currentCode = fullCode(); codeBox.value = currentCode; reqBox.value = "";
+    storage.set(currentCode); updateBtn();
     errBtn.style.display = "none";
-    setMsg("ok", `✔ 套用成功！飲料 ${MENU.length} 項、加料 ${TOPPINGS.length} 項（加料 $${TOPPING_PRICE}）、職等 ${RANKS.length} 階。\n鏡頭和名片校準都保留著，關掉這個面板（Esc）就可以按 Space 開始營業。`);
+    setMsg("ok", `✔ 套用成功！飲料 ${MENU.length} 項、加料 ${TOPPINGS.length} 項（加料 $${TOPPING_PRICE}）、職等 ${RANKS.length} 階。\n下面的框已換成完整的店舖設定。關掉這個面板（Esc）就可以按 Space 開始營業。\n想再改什麼？在最上面的框寫需求 → 按「複製給 AI」。`);
     popup("✔ 已套用新的店舖設定", W / 2, 300, "#7CFF9B");
   };
 
@@ -1321,7 +1375,7 @@ requestAnimationFrame(loop);
   const saved = storage.get();
   if (saved) {
     const r = compile(saved);
-    if (r.cfg) { applyConfig(r.cfg); currentCode = r.code; popup("已載入上次儲存的店舖設定（按 E 查看）", W / 2, 300, "#ffe9c7"); }
+    if (r.cfg) { applyConfig(r.cfg); currentCode = fullCode(); popup("已載入上次儲存的店舖設定（按 E 查看）", W / 2, 300, "#ffe9c7"); }
     else storage.del();
   }
   codeBox.value = currentCode;
