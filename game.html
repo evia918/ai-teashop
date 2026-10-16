@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>體感手搖飲店 v3</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1b1410; overflow: hidden;
+    font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", sans-serif; }
+  #wrap { position: fixed; inset: 0 0 28px 0; display: flex; align-items: center; justify-content: center; }
+  canvas#game { background: #000; border-radius: 8px; box-shadow: 0 0 40px rgba(0,0,0,.6); cursor: crosshair; }
+  #help { position: fixed; bottom: 6px; left: 0; right: 0; text-align: center; color: #c9b8a6; font-size: 13px; }
+  video { display: none; }
+  /* ---- 店舖設定編輯器（按 E 開啟）---- */
+  #help { box-sizing: border-box; padding: 0 190px 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #editBtn { position: fixed; bottom: 3px; right: 8px; z-index: 10; padding: 2px 10px; border: 1px solid #ffb38f;
+    border-radius: 6px; background: rgba(40,26,16,.85); color: #ffe9c7; font: inherit; font-size: 13px; cursor: pointer; }
+  #editBtn:hover { background: #ff7a59; color: #fff; }
+  #editor { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); z-index: 20; box-sizing: border-box;
+    display: none; flex-direction: column; gap: 8px; padding: 14px 16px; background: #2a1d14; color: #f3e6d6;
+    box-shadow: -8px 0 30px rgba(0,0,0,.6); font-size: 14px; }
+  #editor.open { display: flex; }
+  #editor h2 { margin: 0; font-size: 18px; color: #ffe9c7; display: flex; justify-content: space-between; align-items: center; }
+  #editor .steps { margin: 0; color: #c9b8a6; font-size: 13px; line-height: 1.6; }
+  #editor input, #editor textarea { width: 100%; box-sizing: border-box; border: 1px solid #6b5140; border-radius: 6px;
+    background: #fffaf2; color: #2a1d14; padding: 6px 8px; font-size: 14px; }
+  #editor textarea { flex: 1; min-height: 160px; resize: none; font-family: Consolas, "Courier New", "Microsoft JhengHei", monospace;
+    font-size: 13px; line-height: 1.45; white-space: pre; tab-size: 2; }
+  #editor .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  #editor button { padding: 7px 12px; border: 0; border-radius: 6px; background: #5a4030; color: #fff; font: inherit; cursor: pointer; }
+  #editor button:hover { filter: brightness(1.2); }
+  #editor button.main { background: #ff7a59; font-weight: bold; }
+  #editor button.ok { background: #2a9d5c; font-weight: bold; }
+  #editor .x { background: transparent; font-size: 20px; padding: 0 6px; color: #c9b8a6; }
+  #edMsg { display: none; padding: 8px 10px; border-radius: 6px; line-height: 1.6; white-space: pre-wrap; max-height: 32vh; overflow: auto; }
+  #edMsg.err { display: block; background: #4a1c1c; border: 1px solid #ff6b6b; color: #ffd9d9; }
+  #edMsg.ok  { display: block; background: #173d27; border: 1px solid #3ddc84; color: #c8f7d4; }
+  #edMsg code { background: rgba(0,0,0,.35); padding: 1px 4px; border-radius: 3px; font-family: Consolas, monospace; }
+  #edMsg small { color: #c9a0a0; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game"></canvas></div>
+<div id="help">名片雙黑點自動校準（或點黑點中央手動校準）｜T 切換 黑點/色帶 模式｜Space 開始/重玩｜D 偵測遮罩｜[ ] 調門檻｜1/2/3 色帶預設色｜C 切換鏡頭｜M 滑鼠模式｜Esc 回校準｜<b>E 修改店舖</b></div>
+<video id="cam" playsinline muted></video>
+<button id="editBtn" title="修改店舖設定（快捷鍵 E）">✏️ 修改店舖（E）</button>
+<div id="editor">
+  <h2>✏️ 修改店舖設定 <button class="x" id="edClose" title="關閉（Esc）">✕</button></h2>
+  <p class="steps">① 寫下想改什麼 → ② 按「複製給 AI」，貼到 ChatGPT／Gemini<br>
+    ③ 把 AI 的回答貼到下面的框（先按 Ctrl+A 全選再貼上，``` 也可以一起貼）→ ④ 按「套用」</p>
+  <input id="edReq" placeholder="例：把菜單改成 珍奶 55 元、冬瓜茶 25 元、檸檬紅茶 40 元">
+  <div class="row"><button class="main" id="edCopy">📋 複製給 AI</button></div>
+  <textarea id="edCode" spellcheck="false"></textarea>
+  <div class="row">
+    <button class="ok" id="edApply">✅ 套用</button>
+    <button id="edReset">↩ 還原預設</button>
+    <button id="edErrCopy" style="display:none">📋 複製錯誤訊息給 AI</button>
+  </div>
+  <div id="edMsg"></div>
+</div>
+
+<script id="game-script">
+// ================================================================
+// 【店舖設定區】← 學生可以請 AI 修改這一區（遊戲中按 E 也能直接修改、套用）
+// ================================================================
+// ---- 學生設計：點餐表單 → AI 產生這一段 ----
+let SHOP_NAME = "AI 手搖飲";
+
+// 飲料菜單（最多 5 項）：name 名稱 / price 售價 / color 杯中液體顏色 / emoji 圖示
+let MENU = [
+  { name: "紅茶", price: 30, color: "#b5521b", emoji: "🫖" },
+  { name: "綠茶", price: 30, color: "#a8c94f", emoji: "🍵" },
+  { name: "奶茶", price: 45, color: "#d9b38c", emoji: "🧋" },
+  { name: "美式", price: 50, color: "#3b2416", emoji: "☕" },
+  { name: "拿鐵", price: 60, color: "#c8a07a", emoji: "🥛" },
+];
+
+// 加料（0～5 項，可以不加料）：name 名稱 / color 杯底配料顏色 / emoji 圖示
+let TOPPINGS = [
+  { name: "珍珠", color: "#2b1a10", emoji: "⚫" },
+  { name: "椰果", color: "#f4f1e6", emoji: "🥥" },
+  { name: "布丁", color: "#f2c14e", emoji: "🍮" },
+];
+let TOPPING_PRICE = 10;   // 加料價格（每種加料都一樣，元）
+
+// ---- 遊戲參數：老師調整 ----
+let SUGAR = ["全糖", "半糖", "微糖", "無糖"];   // 糖度選項
+let ICE   = ["正常冰", "少冰", "去冰"];         // 冰塊選項
+
+let GAME_TIME  = 180;  // 營業時間上限（秒）：時間到就以目前職等結算
+
+// 店員職等：name 名稱 / badge 徽章 / patience 顧客耐心（秒）/ goal 這一階做對幾杯就晉升
+// 最後一階再達標＝完成任務，頒發認證
+let RANKS = [
+  { name: "實習生", badge: "🔰", patience: 45, goal: 3 },
+  { name: "店員",   badge: "⭐", patience: 30, goal: 3 },
+  { name: "店長",   badge: "👑", patience: 20, goal: 3 },
+];
+let DEMOTE_LOST = 2;   // 同一階流失幾位顧客就降一階（最低階再降＝遊戲結束）
+
+let DWELL_TIME = 0.7;  // 杯子停在站點多久算「選取」（秒）
+let LAYOUT_WIDTH = 0.8; // 站點只排在畫面中間 80%（名片移到畫面最邊緣時，外側黑點容易偵測不到）
+let TIP_RATE   = 0.3;  // 小費比例：出餐越快，小費越多
+let WRONG_COST = 15;   // 做錯一杯的材料損失（元）
+let CUSTOMERS  = ["👩", "👨", "🧑", "👧", "👦", "👵", "👴", "🧔", "👱"];
+
+// ================================================================
+// 【遊戲規則區】← 進階：可請 AI 修改計分與點單邏輯
+// ================================================================
+const rand = n => Math.floor(Math.random() * n);
+
+// 產生一張新訂單
+function makeOrder() {
+  return {
+    drink: rand(MENU.length), sugar: rand(SUGAR.length), ice: rand(ICE.length),
+    // 加料：一半的顧客不加料（-1），另一半隨機加一種
+    topping: TOPPINGS.length && Math.random() < 0.5 ? rand(TOPPINGS.length) : -1,
+    face: CUSTOMERS[rand(CUSTOMERS.length)], wait: 0
+  };
+}
+
+// 比對杯子與訂單，回傳做錯的項目（空陣列＝全對）
+function checkOrder(cup, order) {
+  const wrong = [];
+  if (cup.drink !== order.drink) wrong.push("飲料");
+  if (cup.sugar !== order.sugar) wrong.push("糖度");
+  if (cup.ice   !== order.ice)   wrong.push("冰塊");
+  if ((cup.topping ?? -1) !== order.topping) wrong.push("加料");   // 沒選加料＝不加料
+  return wrong;
+}
+
+// 這張訂單的售價：飲料價格＋加料價格
+function orderPrice(order) {
+  return MENU[order.drink].price + (order.topping >= 0 ? TOPPING_PRICE : 0);
+}
+
+// 出餐正確：計算營收與小費，回傳提示文字
+function onCorrect(order) {
+  const price = orderPrice(order);
+  const ratio = Math.max(0, 1 - order.wait / getPatience());  // 剩餘耐心比例
+  const tip = Math.round(price * TIP_RATE * ratio);
+  revenue += price + tip;
+  stats.served++; stats.tips += tip; stats.sales[order.drink]++;
+  if (order.topping >= 0) { stats.toppings++; stats.toppingIncome += TOPPING_PRICE; }
+  return `+$${price}` + (tip > 0 ? `  小費 $${tip}` : "");
+}
+
+// 出餐錯誤：扣材料成本，顧客繼續等
+function onWrong(wrong) {
+  revenue -= WRONG_COST;
+  stats.wrong++; stats.cost += WRONG_COST;
+  return `做錯${wrong.join("、")}！ −$${WRONG_COST}`;
+}
+
+// 顧客等太久離開
+function onCustomerLeave() {
+  stats.lost++;
+  return "顧客等太久離開了 😤";
+}
+
+// ---- 職等升降（rank：目前第幾階；rankOK：這一階做對幾杯；rankLost：這一階流失幾位）----
+// 目前職等的顧客耐心（秒）
+function getPatience() {
+  return RANKS[rank].patience;
+}
+
+// 做對一杯之後檢查：回傳 "up" 晉升｜"clear" 完成任務｜null 繼續
+function checkPromote() {
+  if (rankOK < RANKS[rank].goal) return null;
+  return rank === RANKS.length - 1 ? "clear" : "up";
+}
+
+// 流失一位顧客之後檢查：回傳 "down" 降階｜"over" 遊戲結束｜null 繼續
+function checkDemote() {
+  if (rankLost < DEMOTE_LOST) return null;
+  return rank === 0 ? "over" : "down";
+}
+
+// ================================================================
+// 【引擎區】鏡頭、追蹤、畫面繪製（一般不需修改）
+// ================================================================
+const W = 640, H = 480, RS = 2;            // 邏輯解析度 / 繪製倍率（字比較清晰）
+const PW = 640, PH = 480, SCALE = W / PW;  // 追蹤解析度（名片黑點約 1.2 cm，需要完整解析度）
+const MIN_PIX = 100;                       // 色帶模式：至少幾個像素才算找到
+
+const canvas = document.getElementById("game");
+canvas.width = W * RS; canvas.height = H * RS;
+const ctx = canvas.getContext("2d");
+ctx.setTransform(RS, 0, 0, RS, 0, 0);
+const video = document.getElementById("cam");
+
+// 追蹤用畫布
+const pc = document.createElement("canvas"); pc.width = PW; pc.height = PH;
+const pctx = pc.getContext("2d", { willReadFrequently: true });
+const mc = document.createElement("canvas"); mc.width = PW; mc.height = PH;
+const mctx = mc.getContext("2d");
+const maskImg = mctx.createImageData(PW, PH);
+const hitMap = new Uint8Array(PW * PH);
+let frameData = null;
+
+// ---- 追蹤模式 ----
+let trackMode = "dot";   // "dot"：白杯黑點（預設）｜"color"：螢光色帶
+
+// 黑點模式參數（點黑點校準後會自動設定）
+let darkT = 70;          // 亮度低於此值＝黑
+let brightT = 100;       // 亮度高於此值＝白
+let dotR = 6, dotR0 = 6; // 黑點半徑估計（追蹤解析度像素），會隨距離自動調整
+let whiteSat = 110;      // 白色區域的最大飽和度（0–255），用來排除膚色、彩色背景（校準時自動調整）
+const lum = new Uint8Array(PW * PH), sat = new Uint8Array(PW * PH);
+let lastPx = null;       // 上一次黑點位置（追蹤解析度）
+// 黑點周圍的底色：白杯＝白色；名片＝黃色（校準時自動量測）
+let colorRing = false, refHue = 0, refSat = 0;
+
+// 名片雙黑點：兩點距離 ÷ 黑點半徑 是固定比例（實測名片約 11），用來辨認「這一對才是名片」
+const PAIR_K_MIN = 7, PAIR_K_MAX = 15;
+// 名片底色（色相 0–360）：黃色名片約 50°。兩眼的間距跟名片黑點很像，靠「底色是黃的」排除臉
+const CARD_HUE = 50, CARD_HUE_TOL = 12, CARD_SAT_MIN = 120;
+// 未校準時輪流試幾組黑/亮門檻（教室偏暗、鏡頭模糊也能自動找到名片）；找到就停在那一組
+const PRECAL_T = [[70, 100], [50, 75], [95, 130]];
+let precalIdx = 0;
+let pairSeen = 99;                 // 距離上次看到一對黑點幾秒（99＝沒看過）
+const PAIR_HOLD = 3;               // 只剩一個黑點時（另一點被手指擋住），沿用名片位置推算的秒數
+let lastA = null, lastB = null;    // 上一次兩個黑點位置
+let cardAngle = 0, cardSize = 0, cardSize0 = 0;   // 名片角度、兩點距離（畫杯子的旋轉與縮放用）
+let autoCount = 0;                 // 未校準時連續偵測到一對黑點的格數 → 自動校準
+let bestIds = [];                  // 遮罩上標綠色的區塊
+
+// 色帶模式參數
+let target = { h: 95, s: 0.6, v: 0.6 };   // 目標顏色（HSV）
+let hueTol = 18, satMin = 0.33, valMin = 0.27;
+
+let cursor = { x: W / 2, y: H / 2 }, tracked = false, lostTime = 99, pixCount = 0;
+let mouse = { x: W / 2, y: H / 2, inside: false };
+let camOK = false, camError = "", mouseMode = false, showMask = false;
+let camDevices = [], camIndex = 0, currentStream = null;
+
+// 遊戲狀態
+let state = "calibrate";  // calibrate | play | result
+let timeLeft = 0, revenue = 0, stats = null, order = null, cup = null, resultT = 0;
+let popups = [], flash = null;
+let rank = 0, rankOK = 0, rankLost = 0;   // 目前職等、這一階做對杯數、這一階流失人數
+let banner = null;                        // 職等公告（顯示期間暫停計時）
+const BANNER_TIME = 2.2;
+
+const emptyCup = () => ({ drink: null, sugar: null, ice: null, topping: null });
+cup = emptyCup();
+
+// ---------- 站點版面（依菜單數量自動排版）----------
+let stations = [];
+function addRow(items, y, h) {
+  const margin = Math.max(16, W * (1 - LAYOUT_WIDTH) / 2), gap = 10, n = items.length;   // 左右留空
+  const w = (W - margin * 2 - gap * (n - 1)) / n;
+  items.forEach((it, i) => stations.push({ ...it, x: margin + i * (w + gap), y, w, h }));
+}
+function buildStations() {
+  stations = [];
+  const drinkRow = MENU.map((m, i) => ({ type: "drink", idx: i, label: m.name, sub: "$" + m.price, color: m.color, icon: m.emoji }));
+  const sugarRow = SUGAR.map((s, i) => ({ type: "sugar", idx: i, label: s, color: "#f2c94c" }));
+  const iceRow = [...ICE.map((s, i) => ({ type: "ice", idx: i, label: s, color: "#8fd3ff" })),
+                  { type: "serve", label: "🛎 出餐", color: "#ff7a59" }];
+  if (TOPPINGS.length) {
+    // 有加料：四排（飲料／糖度／加料／冰塊＋出餐），出餐維持在右下角
+    const topRow = [...TOPPINGS.map((t, i) => ({ type: "topping", idx: i, label: `${t.emoji} ${t.name}`, color: "#c79bff" })),
+                    { type: "topping", idx: -1, label: "不加料", color: "#9a8fb0" }];
+    addRow(drinkRow, 104, 74);
+    addRow(sugarRow, 190, 62);
+    addRow(topRow, 264, 62);
+    addRow(iceRow, 338, 62);
+  } else {
+    addRow(drinkRow, 108, 82);
+    addRow(sugarRow, 222, 70);
+    addRow(iceRow, 326, 70);
+  }
+}
+buildStations();
+const startBtn  = { type: "start",  label: "開始營業", x: 220, y: 368, w: 200, h: 64, color: "#ff7a59" };
+const replayBtn = { type: "replay", label: "再玩一次", x: 220, y: 384, w: 200, h: 48, color: "#ff7a59" };
+
+// ---------- 鏡頭 ----------
+async function startCamera(deviceId) {
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("NoMediaDevices");
+    if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+    const c = { audio: false, video: { width: { ideal: 640 }, height: { ideal: 480 } } };
+    if (deviceId) c.video.deviceId = { exact: deviceId };
+    currentStream = await navigator.mediaDevices.getUserMedia(c);
+    video.srcObject = currentStream;
+    await video.play();
+    camOK = true; camError = ""; mouseMode = false;
+    camDevices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+  } catch (e) {
+    camOK = false; camError = e.name || e.message || String(e); mouseMode = true;
+  }
+}
+
+// ---------- 擷取影像 ----------
+function grabFrame() {
+  pctx.save(); pctx.translate(PW, 0); pctx.scale(-1, 1);   // 鏡像，左右移動才直覺
+  pctx.drawImage(video, 0, 0, PW, PH);
+  pctx.restore();
+  frameData = pctx.getImageData(0, 0, PW, PH);
+}
+// 遊戲中放大游標移動範圍：名片不用移到畫面最邊緣，就能點到最外側的按鈕
+// （名片太靠邊時，外側黑點容易出鏡，鏡頭邊緣的斜角變形也會讓黑點變橢圓）
+const REACH_GAIN = 1.25;
+function moveCursor(cx, cy) {               // 追蹤座標 → 遊戲座標，並平滑
+  let tx = cx * SCALE, ty = cy * SCALE;
+  if (state !== "calibrate") {              // 校準畫面不放大，杯子才會剛好疊在名片上
+    tx = Math.min(W - 4, Math.max(4, W / 2 + (tx - W / 2) * REACH_GAIN));
+    ty = Math.min(H - 4, Math.max(4, H / 2 + (ty - H / 2) * REACH_GAIN));
+  }
+  cursor.x += (tx - cursor.x) * 0.55;
+  cursor.y += (ty - cursor.y) * 0.55;
+}
+
+// ================================================================
+// 黑點模式：找「圓形的黑色區塊，而且周圍一圈是白色」
+//   1) 把暗色像素分成一塊一塊（連通區塊）
+//   2) 每塊檢查：夠不夠圓、周圍是不是白色（不飽和、夠亮）
+//   → 頭髮、深色衣服、滑鼠、陰影：形狀不圓或周圍不白，會被排除
+// ================================================================
+const labels = new Int32Array(PW * PH), stackBuf = new Int32Array(PW * PH);
+const lumAt = (x, y) => lum[Math.min(PH - 1, Math.max(0, y)) * PW + Math.min(PW - 1, Math.max(0, x))];
+const satAt = (x, y) => sat[Math.min(PH - 1, Math.max(0, y)) * PW + Math.min(PW - 1, Math.max(0, x))];
+let blobs = [];
+
+// 把暗色像素分組，回傳每一塊的面積、外框、重心
+function findBlobs() {
+  const N = PW * PH; labels.fill(0); blobs = [];
+  let id = 0;
+  for (let p0 = 0; p0 < N; p0++) {
+    if (labels[p0] || lum[p0] > darkT) continue;
+    id++; let sp = 0; stackBuf[sp++] = p0; labels[p0] = id;
+    let A = 0, sx = 0, sy = 0, x0 = PW, x1 = 0, y0 = PH, y1 = 0;
+    while (sp > 0) {
+      const p = stackBuf[--sp], x = p % PW, y = (p / PW) | 0;
+      A++; sx += x; sy += y;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (x > 0      && !labels[p - 1]  && lum[p - 1]  <= darkT) { labels[p - 1] = id;  stackBuf[sp++] = p - 1; }
+      if (x < PW - 1 && !labels[p + 1]  && lum[p + 1]  <= darkT) { labels[p + 1] = id;  stackBuf[sp++] = p + 1; }
+      if (y > 0      && !labels[p - PW] && lum[p - PW] <= darkT) { labels[p - PW] = id; stackBuf[sp++] = p - PW; }
+      if (y < PH - 1 && !labels[p + PW] && lum[p + PW] <= darkT) { labels[p + PW] = id; stackBuf[sp++] = p + PW; }
+    }
+    if (A < 8 || A > 24000) continue;                // 太小（雜訊）或太大（頭髮、衣服）
+    blobs.push({ id, A, x: sx / A, y: sy / A, w: x1 - x0 + 1, h: y1 - y0 + 1 });
+  }
+}
+
+// 評分：圓形程度 + 周圍白色比例，0 分＝不是黑點
+function scoreBlob(bl) {
+  const aspect = Math.min(bl.w, bl.h) / Math.max(bl.w, bl.h);   // 長寬比，圓＝1
+  const fill = bl.A / (bl.w * bl.h);                              // 填滿率，圓≈0.785
+  if (aspect < 0.4 || fill < 0.45 || fill > 0.95) return 0;      // 寬鬆初篩（斜看的名片黑點會變橢圓）
+  bl.round = aspect >= 0.75 && fill >= 0.65;                       // 正面看的圓點（自動校準只接受這種）
+  const r = Math.sqrt(bl.A / Math.PI);
+  if (dotCalibrated && (r < dotR0 * 0.35 || r > dotR0 * 2.8)) return 0;   // 大小不合理
+  // 周圍 16 點：要亮，而且是底色（白杯＝不飽和；名片＝同色相的黃），排除膚色與其他背景
+  // 取樣圈跟著黑點形狀：名片斜看時整張被壓扁，用正圓取樣會落到名片外面
+  const rx = bl.w / 2 * 1.7 + 2, ry = bl.h / 2 * 1.7 + 2;
+  let white = 0, card = 0;
+  for (let k = 0; k < 16; k++) {
+    const a = k * Math.PI / 8, x = Math.round(bl.x + Math.cos(a) * rx), y = Math.round(bl.y + Math.sin(a) * ry);
+    const kind = ringKind(x, y);
+    if (kind) white++;
+    if (kind === 2) card++;
+  }
+  bl.onCard = card / 16 >= 0.7;                       // 周圍是名片底色（配對黑點時要求這個）
+  // 只有名片上的黑點可以是橢圓；其他區塊（白杯、背景）維持「要夠圓」
+  if (!bl.onCard && (aspect < 0.55 || fill < 0.55)) return 0;
+  const ring = white / 16;
+  if (ring < 0.7) return 0;
+  return ring + aspect * 0.5 + (1 - Math.abs(fill - 0.785) * 3) * 0.3;
+}
+
+function trackDot(dt) {
+  const d = frameData.data, m = maskImg.data, N = PW * PH;
+  for (let p = 0, i = 0; p < N; p++, i += 4) {
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    const max = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    const min = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    lum[p] = (r * 77 + g * 150 + b * 29) >> 8;
+    sat[p] = max === 0 ? 0 : ((max - min) * 255 / max) | 0;
+  }
+  findBlobs();
+  const cands = [];
+  for (const bl of blobs) {
+    const s = scoreBlob(bl);
+    if (s > 0) { bl.s = s; bl.r = Math.sqrt(bl.A / Math.PI); cands.push(bl); }
+  }
+  cands.sort((a, b) => b.s - a.s); if (cands.length > 30) cands.length = 30;
+
+  // 1) 先找「一對」黑點（名片）：大小相近、距離符合名片比例
+  let pair = null, pairS = 0;
+  const lastMid = lastA ? { x: (lastA.x + lastB.x) / 2, y: (lastA.y + lastB.y) / 2 } : null;
+  for (let i = 0; i < cands.length; i++) for (let j = i + 1; j < cands.length; j++) {
+    const a = cands[i], b = cands[j];
+    if (!a.onCard || !b.onCard) continue;
+    // 未校準時沒有大小可以比對，只接受正面的圓點（排除「!!」的點、文字筆畫）
+    if (!dotCalibrated && (!a.round || !b.round)) continue;
+    const q = Math.min(a.r, b.r) / Math.max(a.r, b.r);
+    if (q < 0.65) continue;
+    const k = Math.hypot(a.x - b.x, a.y - b.y) / ((a.r + b.r) / 2);
+    if (k < PAIR_K_MIN || k > PAIR_K_MAX) continue;
+    let s = a.s + b.s + q;
+    if (lastMid && pairSeen < PAIR_HOLD) {
+      const dd = Math.hypot((a.x + b.x) / 2 - lastMid.x, (a.y + b.y) / 2 - lastMid.y);
+      if (dd < 120) s += 2 * (1 - dd / 120);
+    }
+    if (s > pairS) { pairS = s; pair = [a, b]; }
+  }
+
+  let cx = 0, cy = 0, best = null;
+  bestIds = [];
+  if (pair) {
+    let [a, b] = pair;
+    // 維持左右順序一致（跟上一次比對），名片角度才不會突然翻轉
+    if (lastA && pairSeen < PAIR_HOLD ? Math.hypot(b.x - lastA.x, b.y - lastA.y) < Math.hypot(a.x - lastA.x, a.y - lastA.y) : b.x < a.x) [a, b] = [b, a];
+    lastA = { x: a.x, y: a.y }; lastB = { x: b.x, y: b.y }; pairSeen = 0;
+    cardAngle = Math.atan2(b.y - a.y, b.x - a.x);
+    cardSize = Math.hypot(b.x - a.x, b.y - a.y);
+    if (!cardSize0) cardSize0 = cardSize;
+    cx = (a.x + b.x) / 2; cy = (a.y + b.y) / 2;
+    bestIds = [a.id, b.id]; best = a;
+    if (!dotCalibrated && ++autoCount >= 8) calibrateDot(Math.round(a.x), Math.round(a.y), true);
+  } else {
+    pairSeen += dt; autoCount = 0;
+    if (!dotCalibrated) { precalIdx = (precalIdx + 1) % PRECAL_T.length; [darkT, brightT] = PRECAL_T[precalIdx]; }
+    if (pairSeen < PAIR_HOLD && lastA) {
+      // 2) 名片只看到一個黑點（另一個被手指擋住）：用上一次的相對位置推算名片中心
+      let bd = 1e9;
+      for (const bl of cands) {
+        for (const [P, Q] of [[lastA, lastB], [lastB, lastA]]) {
+          const d = Math.hypot(bl.x - P.x, bl.y - P.y);
+          if (d < bd && d < cardSize * 0.5) {
+            bd = d; best = bl;
+            cx = bl.x + (Q.x - P.x) / 2; cy = bl.y + (Q.y - P.y) / 2;
+          }
+        }
+      }
+    } else {
+      // 3) 單一黑點（白杯）：選分數最高的；靠近上一次位置的加分（抗干擾、不亂跳）
+      let bestS = 0;
+      for (const bl of cands) {
+        let s = bl.s;
+        if (lastPx) { const dd = Math.hypot(bl.x - lastPx.x, bl.y - lastPx.y); if (dd < 120) s += 1 - dd / 120; }
+        if (s > bestS) { bestS = s; best = bl; }
+      }
+      if (best) { cx = best.x; cy = best.y; }
+    }
+    if (best) bestIds = [best.id];
+  }
+
+  if (showMask || state === "calibrate") {          // 遮罩：綠＝黑點，淡紅＝暗色但被排除
+    for (let p = 0, i = 0; p < N; p++, i += 4) {
+      const L = labels[p];
+      if (!L) { m[i + 3] = 0; continue; }
+      if (bestIds.includes(L)) { m[i] = 40; m[i + 1] = 255; m[i + 2] = 140; m[i + 3] = 230; }
+      else { m[i] = 255; m[i + 1] = 60; m[i + 2] = 60; m[i + 3] = 60; }
+    }
+  }
+  pixCount = best ? best.A : 0;
+  if (!best) { tracked = false; lostTime += dt; if (lostTime > 0.6) lastPx = null; return; }
+  dotR = Math.sqrt(best.A / Math.PI);
+  lastPx = { x: best.x, y: best.y };
+  moveCursor(cx, cy); tracked = true; lostTime = 0;
+}
+
+// 黑點外圈的像素是哪一種底色：0＝都不是、1＝白色（白杯）、2＝名片底色
+function ringKind(x, y) {
+  x = Math.min(PW - 1, Math.max(0, x)); y = Math.min(PH - 1, Math.max(0, y));
+  const p = y * PW + x;
+  if (lum[p] <= brightT) return 0;
+  const hueDiff = h0 => {
+    const d = frameData.data, i = p * 4;
+    let dh = Math.abs(rgb2hsv(d[i], d[i + 1], d[i + 2]).h - h0); return dh > 180 ? 360 - dh : dh;
+  };
+  if (!dotCalibrated) {                             // 未校準：白色，或預設的名片黃
+    if (sat[p] >= CARD_SAT_MIN && hueDiff(CARD_HUE) <= CARD_HUE_TOL) return 2;
+    return sat[p] < whiteSat ? 1 : 0;
+  }
+  if (!colorRing) return sat[p] < whiteSat ? 1 : 0; // 白杯：不飽和
+  // 名片：飽和度夠、色相接近校準時量到的底色
+  return sat[p] >= refSat * 0.5 && hueDiff(refHue) <= CARD_HUE_TOL + 6 ? 2 : 0;
+}
+
+// 點黑點中央校準：依點到的區塊量出黑點大小、黑白亮度、底色，自動設定門檻
+// （名片：連續看到一對黑點時會自動呼叫，auto = true）
+let dotCalibrated = false;
+function calibrateDot(px, py, auto = false) {
+  let Ld = 255, bx = px, by = py;                     // 點擊附近 7x7 找最暗處（點歪也沒關係）
+  for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+    const v = lumAt(px + dx, py + dy); if (v < Ld) { Ld = v; bx = px + dx; by = py + dy; }
+  }
+  // 往四個方向找黑點邊緣（亮度變化過一半的地方），估半徑與外圍白色亮度
+  let Lw0 = 0; const rs = [];
+  for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    let k = 1, maxV = 0;
+    for (let j = 1; j < 100; j++) maxV = Math.max(maxV, lumAt(bx + dx * j, by + dy * j));
+    const mid = (Ld + maxV) / 2;
+    while (k < 100 && lumAt(bx + dx * k, by + dy * k) < mid) k++;
+    rs.push(k); Lw0 += maxV;
+  }
+  rs.sort((a, b) => a - b);
+  const r = Math.max(2, (rs[1] + rs[2]) / 2);
+  const ws = [];
+  for (let k = 0; k < 16; k++) { const a = k * Math.PI / 8; ws.push(lumAt(Math.round(bx + Math.cos(a) * (r * 1.7 + 2)), Math.round(by + Math.sin(a) * (r * 1.7 + 2)))); }
+  ws.sort((a, b) => a - b);
+  const Lw = ws[8];                                   // 外圈亮度中位數
+  const ss = [], hs = [];
+  for (let k = 0; k < 16; k++) {
+    const a = k * Math.PI / 8;
+    const x = Math.min(PW - 1, Math.max(0, Math.round(bx + Math.cos(a) * (r * 1.7 + 2))));
+    const y = Math.min(PH - 1, Math.max(0, Math.round(by + Math.sin(a) * (r * 1.7 + 2))));
+    ss.push(satAt(x, y));
+    const i = (y * PW + x) * 4, d = frameData.data;
+    hs.push(rgb2hsv(d[i], d[i + 1], d[i + 2]).h);
+  }
+  ss.sort((a, b) => a - b); hs.sort((a, b) => a - b);
+  if (Lw - Ld < 50) { if (!auto) popup("對比不足：請點黑點正中央，或加強光線", W / 2, 300, "#ffd166"); return; }
+  // 底色：飽和度高＝彩色名片（記住色相）；低＝白杯
+  colorRing = ss[8] > 80;
+  refSat = ss[8]; refHue = hs[8];
+  whiteSat = Math.min(170, Math.max(90, ss[8] + 40));   // 白杯：依實際顏色（偏黃燈光也可）
+  darkT = Math.round(Ld + (Lw - Ld) * 0.45);
+  brightT = Math.max(darkT + 25, Math.round(Ld + (Lw - Ld) * 0.6));
+  dotR = dotR0 = r; dotCalibrated = true; lastPx = { x: bx, y: by }; cardSize0 = 0;
+  popup(`✔ ${auto ? "自動" : ""}校準完成（${colorRing ? "彩色名片" : "白色底"}，黑點半徑 ${r.toFixed(1)}）`, W / 2, 300, "#7CFF9B");
+  if (r < 3) popup("黑點太小：請把名片拿近鏡頭一點", W / 2, 330, "#ffd166");
+}
+
+// ================================================================
+// 色帶模式：顏色（色相）追蹤
+// ================================================================
+function rgb2hsv(r, g, b) {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), c = max - min;
+  let h = 0;
+  if (c !== 0) {
+    if (max === r) h = ((g - b) / c) % 6;
+    else if (max === g) h = (b - r) / c + 2;
+    else h = (r - g) / c + 4;
+    h *= 60; if (h < 0) h += 360;
+  }
+  return { h, s: max === 0 ? 0 : c / max, v: max / 255 };
+}
+function isMatch(r, g, b) {
+  const max = Math.max(r, g, b);
+  if (max < valMin * 255) return false;
+  const min = Math.min(r, g, b), c = max - min;
+  if (c === 0 || c / max < satMin) return false;
+  let h;
+  if (max === r) h = ((g - b) / c) % 6;
+  else if (max === g) h = (b - r) / c + 2;
+  else h = (r - g) / c + 4;
+  h *= 60; if (h < 0) h += 360;
+  let dh = Math.abs(h - target.h); if (dh > 180) dh = 360 - dh;
+  return dh <= hueTol;
+}
+function setTarget(hsv) {
+  target = hsv;
+  satMin = Math.max(0.28, hsv.s * 0.55);
+  valMin = Math.max(0.18, hsv.v * 0.45);
+}
+function trackColor(dt) {
+  const d = frameData.data, m = maskImg.data;
+  let sx = 0, sy = 0, n = 0;
+  for (let y = 0, p = 0; y < PH; y++) for (let x = 0; x < PW; x++, p++) {
+    const i = p * 4, hit = isMatch(d[i], d[i + 1], d[i + 2]);
+    hitMap[p] = hit ? 1 : 0;
+    m[i] = 40; m[i + 1] = 255; m[i + 2] = 140; m[i + 3] = hit ? 170 : 0;
+    if (hit) { sx += x; sy += y; n++; }
+  }
+  pixCount = n;
+  if (n < MIN_PIX) { tracked = false; lostTime += dt; return; }
+  let cx = sx / n, cy = sy / n, rx = 0, ry = 0, rn = 0;
+  const R2 = 60 * 60;
+  for (let y = 0, p = 0; y < PH; y++) for (let x = 0; x < PW; x++, p++) {
+    if (!hitMap[p]) continue;
+    const dx = x - cx, dy = y - cy;
+    if (dx * dx + dy * dy <= R2) { rx += x; ry += y; rn++; }
+  }
+  if (rn >= MIN_PIX * 0.6) { cx = rx / rn; cy = ry / rn; }
+  moveCursor(cx, cy); tracked = true; lostTime = 0;
+}
+
+// 短暫遺失 0.25 秒內仍視為追蹤中，避免停留計時被打斷
+const effTracked = () => tracked || lostTime < 0.25;
+
+// ---------- 停留選取 ----------
+let hover = null, hoverT = 0, lockStation = null;
+function resetDwell() { hover = null; hoverT = 0; lockStation = null; }
+const inside = (p, s) => p.x >= s.x && p.x <= s.x + s.w && p.y >= s.y && p.y <= s.y + s.h;
+function updateDwell(dt, list) {
+  const st = effTracked() ? (list.find(s => inside(cursor, s)) || null) : null;
+  if (st !== hover) { hover = st; hoverT = 0; if (lockStation && st !== lockStation) lockStation = null; }
+  if (!st || st === lockStation) return null;   // 剛觸發過的站點要先離開才能再觸發
+  hoverT += dt;
+  if (hoverT >= DWELL_TIME) { lockStation = st; hoverT = 0; return st; }
+  return null;
+}
+
+// ---------- 音效（WebAudio 合成，免素材）----------
+let actx = null;
+function ensureAudio() {
+  try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume(); } catch (e) {}
+}
+function beep(freq = 660, dur = 0.08, type = "sine", vol = 0.15, delay = 0) {
+  if (!actx) return;
+  try {
+    const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + delay;
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur);
+  } catch (e) {}
+}
+const sfx = {
+  pick:  () => beep(560, 0.07, "square", 0.08),
+  ok:    () => { beep(660, 0.1); beep(880, 0.12, "sine", 0.15, 0.1); beep(1100, 0.15, "sine", 0.15, 0.2); },
+  wrong: () => beep(180, 0.25, "sawtooth", 0.12),
+  leave: () => { beep(300, 0.15, "triangle"); beep(200, 0.2, "triangle", 0.15, 0.15); },
+  start: () => { beep(523, 0.1); beep(784, 0.15, "sine", 0.15, 0.1); },
+  end:   () => { beep(784, 0.15); beep(523, 0.3, "sine", 0.15, 0.15); },
+  up:    () => [523, 659, 784, 1047].forEach((f, i) => beep(f, 0.14, "sine", 0.15, i * 0.1)),
+  down:  () => [392, 330, 262].forEach((f, i) => beep(f, 0.18, "triangle", 0.15, i * 0.14)),
+  clear: () => [523, 659, 784, 1047, 784, 1047].forEach((f, i) => beep(f, 0.18, "sine", 0.15, i * 0.12)),
+};
+
+// ---------- 提示文字 ----------
+function popup(text, x, y, color = "#fff") { popups.push({ text, x, y, color, t: 0 }); }
+function doFlash(color) { flash = { color, t: 0 }; }
+
+// ---------- 遊戲流程 ----------
+function startGame() {
+  timeLeft = GAME_TIME; revenue = 0;
+  stats = { served: 0, wrong: 0, lost: 0, tips: 0, cost: 0, sales: MENU.map(() => 0), toppings: 0, toppingIncome: 0, maxRank: 0, ending: null, time: 0 };
+  rank = 0; rankOK = 0; rankLost = 0;
+  cup = emptyCup(); order = makeOrder(); popups = [];
+  showBanner(`${RANKS[0].badge} ${RANKS[0].name} 上工！`, "#ffe9c7");
+  state = "play"; resetDwell(); sfx.start();
+}
+// ending："clear" 完成任務｜"over" 實習生也沒達標｜"timeup" 營業時間到
+function endGame(ending) {
+  stats.ending = ending; stats.time = Math.round(GAME_TIME - timeLeft);
+  state = "result"; resultT = 0; resetDwell(); banner = null;
+  if (ending === "clear") sfx.clear(); else sfx.end();
+}
+
+// 職等公告：顯示新職等的規則，期間暫停計時（給玩家喘口氣、看清楚規則）
+function showBanner(title, color) {
+  const r = RANKS[rank];
+  banner = { t: 0, title, color, sub: `顧客耐心 ${r.patience} 秒｜做對 ${r.goal} 杯晉升｜流失 ${DEMOTE_LOST} 位降階` };
+}
+function changeRank(d) {
+  rank += d; rankOK = 0; rankLost = 0;
+  stats.maxRank = Math.max(stats.maxRank, rank);
+  order = makeOrder(); cup = emptyCup(); resetDwell();
+  const r = RANKS[rank];
+  if (d > 0) { showBanner(`晉升！${r.badge} ${r.name}`, "#7CFF9B"); sfx.up(); }
+  else { showBanner(`降階… ${r.badge} ${r.name}`, "#ffb347"); sfx.down(); }
+}
+
+function handleStation(s) {
+  if (s.type === "drink") { cup.drink = s.idx; sfx.pick(); }
+  else if (s.type === "sugar") { cup.sugar = s.idx; sfx.pick(); }
+  else if (s.type === "ice") { cup.ice = s.idx; sfx.pick(); }
+  else if (s.type === "topping") { cup.topping = s.idx; sfx.pick(); }
+  else if (s.type === "serve") {
+    if (cup.drink === null) { popup("杯子是空的！", cursor.x, cursor.y - 50, "#ffd166"); sfx.wrong(); return; }
+    const wrong = checkOrder(cup, order);
+    if (wrong.length === 0) {
+      popup(onCorrect(order), W / 2, 200, "#7CFF9B"); doFlash("#3ddc84"); sfx.ok();
+      order = makeOrder(); cup = emptyCup(); rankOK++;
+      const r = checkPromote();
+      if (r === "clear") { endGame("clear"); return; }
+      if (r === "up") { changeRank(+1); return; }
+    } else {
+      popup(onWrong(wrong), W / 2, 200, "#ff6b6b"); doFlash("#ff4d4d"); sfx.wrong();
+    }
+    cup = emptyCup();
+  }
+}
+
+function update(dt) {
+  if (state === "calibrate") {
+    if (updateDwell(dt, [startBtn])) startGame();
+  } else if (state === "play" && banner) {     // 職等公告期間暫停
+    banner.t += dt; if (banner.t > BANNER_TIME) { banner = null; resetDwell(); }
+  } else if (state === "play") {
+    timeLeft -= dt;
+    if (timeLeft <= 0) { timeLeft = 0; endGame("timeup"); return; }
+    order.wait += dt;
+    if (order.wait >= getPatience()) {
+      popup(onCustomerLeave(), W / 2, 200, "#ffb347"); doFlash("#ff9f43"); sfx.leave();
+      order = makeOrder(); rankLost++;
+      const r = checkDemote();
+      if (r === "over") { endGame("over"); return; }
+      if (r === "down") changeRank(-1);
+    }
+    const hit = updateDwell(dt, stations);
+    if (hit) handleStation(hit);
+  } else if (state === "result") {
+    resultT += dt;
+    if (resultT > 1.5 && updateDwell(dt, [replayBtn])) startGame();
+  }
+  popups.forEach(p => p.t += dt); popups = popups.filter(p => p.t < 1.4);
+  if (flash) { flash.t += dt; if (flash.t > 0.35) flash = null; }
+}
+
+// ---------- 繪圖工具 ----------
+function rr(x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function hexA(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+function txt(s, x, y, size, color = "#fff", align = "center", weight = "bold") {
+  ctx.font = `${weight} ${size}px "Microsoft JhengHei","Noto Sans TC","PingFang TC",sans-serif`;
+  ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.fillText(s, x, y);
+}
+// 字太長放不進站點時自動縮小（學生用 AI 加了很多品項或長品名也不會爆框）
+function fitSize(s, maxW, size) {
+  ctx.font = `bold ${size}px "Microsoft JhengHei","Noto Sans TC","PingFang TC",sans-serif`;
+  const w = ctx.measureText(s).width;
+  return w > maxW ? Math.max(11, Math.floor(size * maxW / w)) : size;
+}
+function txtShadow(s, x, y, size, color, align = "center") {
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.8)"; ctx.shadowBlur = 6; txt(s, x, y, size, color, align); ctx.restore();
+}
+
+function drawBackground(dim) {
+  if (camOK && video.readyState >= 2) {
+    ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1); ctx.drawImage(video, 0, 0, W, H); ctx.restore();
+    ctx.fillStyle = `rgba(20,12,6,${dim})`; ctx.fillRect(0, 0, W, H);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#3a2618"); g.addColorStop(1, "#1b1410");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+}
+function drawMask() {
+  if (!camOK || mouseMode) return;
+  mctx.putImageData(maskImg, 0, 0);
+  ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(mc, 0, 0, W, H); ctx.restore();
+}
+
+function drawStation(s) {
+  const isHover = hover === s && effTracked() && lockStation !== s;
+  const selected = (s.type === "drink" && cup.drink === s.idx) ||
+                   (s.type === "sugar" && cup.sugar === s.idx) ||
+                   (s.type === "ice"   && cup.ice   === s.idx) ||
+                   (s.type === "topping" && cup.topping === s.idx);
+  rr(s.x, s.y, s.w, s.h, 10);
+  const solid = s.type === "replay";                 // 結算畫面是淺色底，按鈕要實心才看得清楚
+  ctx.fillStyle = hexA(s.color, solid ? (isHover ? 1 : 0.85) : (isHover ? 0.6 : 0.3)); ctx.fill();
+  ctx.lineWidth = selected ? 4 : 2;
+  ctx.strokeStyle = selected ? "#ffffff" : hexA(s.color, 0.95); ctx.stroke();
+  const cx = s.x + s.w / 2, cy = s.y + s.h / 2;
+  if (s.type === "drink") {
+    txtShadow(`${s.icon} ${s.label}`, cx, cy - 10, fitSize(`${s.icon} ${s.label}`, s.w - 10, 19), "#fff");
+    txtShadow(s.sub, cx, cy + 16, 14, "#ffe9c7");
+  } else {
+    txtShadow(s.label, cx, cy, fitSize(s.label, s.w - 10, s.type === "start" ? 24 : 19), "#fff");
+  }
+  if (selected) txtShadow("✔", s.x + s.w - 12, s.y + 12, 16, "#7CFF9B");
+  if (isHover && hoverT > 0) {
+    rr(s.x + 6, s.y + s.h - 10, (s.w - 12) * Math.min(1, hoverT / DWELL_TIME), 5, 2);
+    ctx.fillStyle = "#fff"; ctx.fill();
+  }
+}
+
+function drawCup(x, y) {
+  const tw = 46, bw = 34, h = 56, top = y - h / 2, bottom = y + h / 2;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x - tw / 2, top); ctx.lineTo(x + tw / 2, top);
+  ctx.lineTo(x + bw / 2, bottom); ctx.lineTo(x - bw / 2, bottom); ctx.closePath();
+  ctx.fillStyle = "rgba(255,255,255,0.18)"; ctx.fill();
+  if (cup.drink !== null) {
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = MENU[cup.drink].color; ctx.fillRect(x - tw, top + h * 0.22, tw * 2, h);
+    if (cup.topping !== null && cup.topping >= 0) {          // 加料：杯底一排小圓粒
+      ctx.fillStyle = TOPPINGS[cup.topping].color; ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+      for (let i = 0; i < 6; i++) {
+        ctx.beginPath(); ctx.arc(x - 12 + (i % 3) * 12 + (i < 3 ? 0 : 6), bottom - 6 - (i < 3 ? 0 : 7), 4.5, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+      }
+    }
+    if (cup.ice !== null && ICE.length > 1) {
+      const k = Math.round((ICE.length - 1 - cup.ice) / (ICE.length - 1) * 3);
+      ctx.fillStyle = "rgba(220,245,255,0.85)";
+      for (let i = 0; i < k; i++) ctx.fillRect(x - 15 + i * 10, top + h * 0.3 + (i % 2) * 8, 8, 8);
+    }
+    ctx.restore();
+  }
+  ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.stroke();
+  ctx.fillStyle = "#fff"; ctx.fillRect(x - tw / 2 - 3, top - 5, tw + 6, 5);
+  ctx.fillRect(x + 6, top - 22, 4, 18);
+  if (cup.sugar !== null) txtShadow(SUGAR[cup.sugar], x, bottom + 12, 12, "#ffe08a");
+  ctx.restore();
+}
+
+// 名片模式：杯子跟著名片旋轉、遠近縮放（AR 效果）
+let cupAngle = 0, cupScale = 1;
+function drawCursor() {
+  if (effTracked() && !mouseMode && trackMode === "dot" && pairSeen < PAIR_HOLD && cardSize0) {
+    const a = Math.max(-1, Math.min(1, cardAngle));
+    cupAngle += (a - cupAngle) * 0.4;
+    cupScale += (Math.max(0.7, Math.min(1.6, cardSize / cardSize0)) - cupScale) * 0.3;
+    ctx.save(); ctx.translate(cursor.x, cursor.y); ctx.rotate(cupAngle); ctx.scale(cupScale, cupScale);
+    drawCup(0, 0); ctx.restore();
+  } else if (effTracked()) drawCup(cursor.x, cursor.y);
+  else txtShadow(mouseMode ? "（滑鼠移入畫面）" : "找不到名片 👀 把兩個黑點對著鏡頭", W / 2, 458, 16, "#ffd166");
+  // 名片只抓到一個黑點：提醒轉正（新手最常見的狀況是名片斜向鏡頭）
+  if (effTracked() && !mouseMode && trackMode === "dot" && colorRing && pairSeen >= 0.3)
+    txtShadow("📇 把名片轉正，面對鏡頭", W / 2, 458, 16, "#ffd166");
+}
+
+// 職等公告（晉升、降階、開始營業）
+function drawBanner() {
+  const a = Math.min(1, banner.t / 0.2, (BANNER_TIME - banner.t) / 0.3);
+  ctx.save(); ctx.globalAlpha = Math.max(0, a);
+  ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, 0, W, H);
+  rr(90, 170, 460, 130, 16); ctx.fillStyle = "rgba(30,20,12,0.95)"; ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = banner.color; ctx.stroke();
+  txt(banner.title, W / 2, 218, 34, banner.color);
+  txt(banner.sub, W / 2, 266, 16, "#fff", "center", "normal");
+  ctx.restore();
+}
+
+function drawOrderPanel() {
+  rr(10, 8, 620, 86, 12); ctx.fillStyle = "rgba(255,248,235,0.94)"; ctx.fill();
+  txt(order.face, 50, 51, 42, "#000", "center", "normal");
+  txt(`顧客點單（耐心 ${getPatience()} 秒）`, 96, 26, 13, "#8a6a4a", "left");
+  const m = MENU[order.drink];
+  const tp = order.topping >= 0 ? `｜加${TOPPINGS[order.topping].name}` : (TOPPINGS.length ? "｜不加料" : "");
+  const os = `${m.emoji} ${m.name}｜${SUGAR[order.sugar]}｜${ICE[order.ice]}${tp}`;
+  txt(os, 96, 54, fitSize(os, 420, 24), "#3b2416", "left");
+  const r = Math.max(0, 1 - order.wait / getPatience());
+  rr(96, 76, 320, 8, 4); ctx.fillStyle = "#e6d7c3"; ctx.fill();
+  rr(96, 76, 320 * r, 8, 4); ctx.fillStyle = r > 0.5 ? "#3ddc84" : r > 0.25 ? "#f2c94c" : "#ff4d4d"; ctx.fill();
+  txt(`⏱ ${Math.ceil(timeLeft)}`, 615, 34, 26, timeLeft <= 10 ? "#d62828" : "#3b2416", "right");
+  txt(`$ ${revenue}`, 615, 70, 22, "#2a7a3b", "right");
+}
+
+function drawStatusBar() {
+  const f = v => (v === null ? "—" : v);
+  const tp = cup.topping === null ? null : cup.topping < 0 ? "不加料" : TOPPINGS[cup.topping].name;
+  const s = `杯中：${f(cup.drink === null ? null : MENU[cup.drink].name)} / ${f(cup.sugar === null ? null : SUGAR[cup.sugar])} / ${f(cup.ice === null ? null : ICE[cup.ice])}` +
+            (TOPPINGS.length ? ` / ${f(tp)}` : "");
+  rr(10, 410, 620, 30, 8); ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fill();
+  txt(s, 22, 425, 15, "#fff", "left");
+  // 職等進度：晉升還差幾杯、流失燈號
+  const R = RANKS[rank];
+  const lostDots = "●".repeat(rankLost) + "○".repeat(Math.max(0, DEMOTE_LOST - rankLost));
+  txt(`${R.badge} ${R.name}｜晉升 ${rankOK}/${R.goal} 杯｜流失 ${lostDots}`, 618, 425, 15, "#ffe9c7", "right");
+}
+
+function drawCalibrate() {
+  drawBackground(0.15);
+  drawMask();
+  rr(16, 14, 608, 150, 12); ctx.fillStyle = "rgba(20,12,6,0.78)"; ctx.fill();
+  txt(`🧋 ${SHOP_NAME}｜體感手搖飲店`, 32, 40, 24, "#ffe9c7", "left");
+  const lines = trackMode === "dot" ? [
+    "1. 拿起名片，兩個黑點朝向鏡頭，手指捏住名片下緣中間",
+    "2. 兩個黑點都變綠色就會自動校準（不行的話，用滑鼠點黑點中央）",
+    "3. 綠色＝偵測到黑點；淡紅＝暗色但已排除（正常）",
+    "4. 把名片移到「開始營業」停留，或按 Space 開始",
+  ] : [
+    "1. 拿起貼了螢光色帶的紙杯，對著鏡頭",
+    "2. 用滑鼠點一下畫面中的色帶 → 完成顏色校準",
+    "3. 確認綠色遮罩只出現在杯子上（太多雜訊按 [ 縮小容許度）",
+    "4. 把杯子移到「開始營業」停留，或按 Space 開始",
+  ];
+  lines.forEach((l, i) => txt(l, 32, 72 + i * 22, 15, "#fff", "left", "normal"));
+  let status;
+  if (mouseMode && !camOK) status = `⚠ 無法開啟鏡頭（${camError}）→ 請允許相機權限；目前為滑鼠模式`;
+  else if (mouseMode) status = "🖱 滑鼠模式（按 M 切回鏡頭）";
+  else if (trackMode === "dot") status = `⚫ 黑點模式${dotCalibrated ? "（已校準）" : "（未校準）"}｜${pairSeen < 0.3 ? "名片雙點 ✔" : "名片雙點 ✘"}｜黑點半徑 ${dotR.toFixed(1)}｜黑門檻 ${darkT}｜亮門檻 ${brightT}`;
+  else status = `🎨 色帶模式｜偵測像素 ${pixCount}｜容許度 ${hueTol}｜目標色相 ${Math.round(target.h)}°`;
+  if (!mouseMode && camDevices.length > 1) status += `｜鏡頭 ${camIndex + 1}/${camDevices.length}`;
+  rr(16, 330, 608, 30, 8); ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fill();
+  txt(status, 28, 345, 14, mouseMode && !camOK ? "#ff9f9f" : "#c8f7d4", "left", "normal");
+  if (trackMode === "color") { ctx.fillStyle = `hsl(${target.h},90%,55%)`; rr(590, 334, 24, 22, 4); ctx.fill(); }
+  drawStation(startBtn);
+  drawCursor();
+}
+
+function drawPlay() {
+  drawBackground(0.45);
+  if (showMask) drawMask();
+  stations.forEach(drawStation);
+  drawOrderPanel();
+  drawStatusBar();
+  drawCursor();
+  if (banner) drawBanner();
+}
+
+function drawResult() {
+  drawBackground(0.6);
+  const top = RANKS[RANKS.length - 1], R = RANKS[rank], best = RANKS[stats.maxRank];
+  rr(70, 30, 500, 410, 16); ctx.fillStyle = "rgba(255,248,235,0.96)"; ctx.fill();
+  let title, sub, color = "#3b2416";
+  if (stats.ending === "clear") {          // 完成任務：認證框
+    ctx.lineWidth = 6; ctx.strokeStyle = "#d4a017"; ctx.stroke();
+    rr(80, 40, 480, 390, 12); ctx.lineWidth = 1.5; ctx.stroke();
+    title = `🏆 ${top.name}認證`; color = "#a87a00";
+    sub = `恭喜完成任務！用時 ${stats.time} 秒`;
+  } else if (stats.ending === "over") {
+    title = "☕ 請稍作休息再加油";
+    sub = `${R.name}階段流失 ${DEMOTE_LOST} 位顧客，換個角度拿名片再試一次`;
+  } else {
+    title = "⏰ 營業時間到";
+    sub = `今日職等：${R.badge} ${R.name}` + (stats.maxRank > rank ? `（最高到過 ${best.badge} ${best.name}）` : "");
+  }
+  txt(title, W / 2, 66, 28, color);
+  txt(sub, W / 2, 98, 15, "#5a4030", "center", "normal");
+  txt(`營業額 $ ${revenue}`, W / 2, 132, 24, "#2a7a3b");
+  const rows = [
+    `成功出杯 ${stats.served} 杯（含小費 $${stats.tips}）` + (TOPPINGS.length ? `｜加料 ${stats.toppings} 杯 $${stats.toppingIncome}` : ""),
+    `做錯 ${stats.wrong} 杯（材料損失 $${stats.cost}）｜流失顧客 ${stats.lost} 位`,
+  ];
+  rows.forEach((r, i) => txt(r, W / 2, 162 + i * 22, 15, "#5a4030", "center", "normal"));
+  const x0 = 110, x1 = 530, yBase = 340, maxH = 100, n = MENU.length;
+  const maxV = Math.max(1, ...stats.sales), bw = (x1 - x0) / n;
+  txt("各飲料銷量", x0, 212, 14, "#8a6a4a", "left");
+  ctx.strokeStyle = "#cbb79f"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, yBase); ctx.lineTo(x1, yBase); ctx.stroke();
+  MENU.forEach((m, i) => {
+    const h = stats.sales[i] / maxV * maxH, x = x0 + i * bw + bw * 0.2;
+    ctx.fillStyle = m.color; ctx.fillRect(x, yBase - h, bw * 0.6, h);
+    txt(String(stats.sales[i]), x + bw * 0.3, yBase - h - 10, 14, "#3b2416");
+    txt(m.name, x + bw * 0.3, yBase + 14, 14, "#5a4030", "center", "normal");
+  });
+  if (resultT > 1.5) { drawStation(replayBtn); drawCursor(); }
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  if (state === "calibrate") drawCalibrate();
+  else if (state === "play") drawPlay();
+  else drawResult();
+  popups.forEach(p => {
+    ctx.save(); ctx.globalAlpha = Math.max(0, 1 - p.t / 1.4);
+    txtShadow(p.text, p.x, p.y - p.t * 40, 24, p.color); ctx.restore();
+  });
+  if (flash) {
+    ctx.save(); ctx.globalAlpha = 1 - flash.t / 0.35; ctx.lineWidth = 14;
+    ctx.strokeStyle = flash.color; ctx.strokeRect(0, 0, W, H); ctx.restore();
+  }
+}
+
+// ---------- 主迴圈 ----------
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (mouseMode) {
+    cursor.x = mouse.x; cursor.y = mouse.y;
+    tracked = mouse.inside; lostTime = tracked ? 0 : 99;
+  } else if (camOK && video.readyState >= 2) {
+    grabFrame();
+    if (trackMode === "dot") trackDot(dt); else trackColor(dt);
+  }
+  update(dt); render();
+  requestAnimationFrame(loop);
+}
+
+// ---------- 輸入 ----------
+function toCanvas(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
+}
+canvas.addEventListener("pointermove", e => { const p = toCanvas(e); mouse.x = p.x; mouse.y = p.y; mouse.inside = true; });
+canvas.addEventListener("pointerleave", () => { mouse.inside = false; });
+canvas.addEventListener("pointerdown", e => {
+  ensureAudio();
+  if (mouseMode || !frameData) return;
+  const p = toCanvas(e), px = Math.floor(p.x / SCALE), py = Math.floor(p.y / SCALE);
+  if (trackMode === "dot") { calibrateDot(px, py); return; }
+  // 色帶模式：點擊位置取 5x5 平均色作為追蹤目標
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const x = px + dx, y = py + dy;
+    if (x < 0 || y < 0 || x >= PW || y >= PH) continue;
+    const i = (y * PW + x) * 4;
+    r += frameData.data[i]; g += frameData.data[i + 1]; b += frameData.data[i + 2]; n++;
+  }
+  const hsv = rgb2hsv(r / n, g / n, b / n);
+  setTarget(hsv);
+  if (hsv.s < 0.25) popup("顏色太淡！建議改用螢光色膠帶", W / 2, 300, "#ffd166");
+  else popup("✔ 顏色校準完成", W / 2, 300, "#7CFF9B");
+});
+
+const PRESETS = { "1": { h: 95, s: 0.6, v: 0.6 }, "2": { h: 330, s: 0.6, v: 0.6 }, "3": { h: 22, s: 0.7, v: 0.7 } };
+window.addEventListener("keydown", e => {
+  if (e.target.closest && e.target.closest("#editor")) return;   // 在設定編輯器裡打字時，不觸發遊戲快捷鍵
+  ensureAudio();
+  const k = e.key;
+  if (k === " ") { e.preventDefault(); if (state !== "play") startGame(); }
+  else if (k === "d" || k === "D") showMask = !showMask;
+  else if (k === "t" || k === "T") { trackMode = trackMode === "dot" ? "color" : "dot"; lastPx = null; popup(trackMode === "dot" ? "⚫ 黑點模式" : "🎨 色帶模式", W / 2, 300); }
+  else if (k === "[") { if (trackMode === "dot") darkT = Math.max(20, darkT - 8); else hueTol = Math.max(6, hueTol - 3); }
+  else if (k === "]") { if (trackMode === "dot") darkT = Math.min(brightT - 10, darkT + 8); else hueTol = Math.min(45, hueTol + 3); }
+  else if (PRESETS[k]) { trackMode = "color"; setTarget(PRESETS[k]); }
+  else if (k === "m" || k === "M") { if (camOK) mouseMode = !mouseMode; }
+  else if (k === "c" || k === "C") {
+    if (camDevices.length > 1) { camIndex = (camIndex + 1) % camDevices.length; startCamera(camDevices[camIndex].deviceId); }
+  }
+  else if (k === "Escape") {
+    // 在校準畫面再按一次 Esc：清除校準，重新自動校準
+    if (state === "calibrate") { dotCalibrated = false; colorRing = false; precalIdx = 0; [darkT, brightT] = PRECAL_T[0]; autoCount = 0; popup("已清除校準", W / 2, 300, "#ffd166"); }
+    state = "calibrate"; resetDwell();
+  }
+});
+
+// 視窗縮放：維持 4:3 比例填滿
+function fit() {
+  const s = Math.min(window.innerWidth / W, (window.innerHeight - 28) / H);
+  canvas.style.width = W * s + "px"; canvas.style.height = H * s + "px";
+}
+window.addEventListener("resize", fit);
+fit();
+setTarget(target);
+startCamera();
+requestAnimationFrame(loop);
+</script>
+<script>
+// ================================================================
+// 【設定編輯器】按 E 開啟：貼上 AI 改好的店舖設定 → 套用，不用重新整理（鏡頭與名片校準都保留）
+// ================================================================
+(function () {
+  const KEYS = ["SHOP_NAME", "MENU", "TOPPINGS", "TOPPING_PRICE", "SUGAR", "ICE", "GAME_TIME", "RANKS", "DEMOTE_LOST",
+                "DWELL_TIME", "LAYOUT_WIDTH", "TIP_RATE", "WRONG_COST", "CUSTOMERS"];
+  // 遊戲目前的設定值（貼上的程式碼沒寫到的項目，就沿用這些）
+  const currentValues = () => ({ SHOP_NAME, MENU, TOPPINGS, TOPPING_PRICE, SUGAR, ICE, GAME_TIME, RANKS, DEMOTE_LOST,
+                                 DWELL_TIME, LAYOUT_WIDTH, TIP_RATE, WRONG_COST, CUSTOMERS });
+  const STORE_KEY = "bubbleTeaShop.v3.shopConfig";
+  const $ = id => document.getElementById(id);
+  const panel = $("editor"), codeBox = $("edCode"), reqBox = $("edReq"), msgBox = $("edMsg"), errBtn = $("edErrCopy");
+
+  // 預設設定＝這個檔案裡【店舖設定區】的原文（老師或學生改過檔案也會跟著變）
+  const DEFAULT_CODE = (() => {
+    const src = $("game-script").textContent;
+    const a = src.indexOf("\n", src.indexOf("// ====", src.indexOf("【店舖設定區】")));
+    const b = src.lastIndexOf("// ====", src.indexOf("【遊戲規則區】"));
+    return "// 【店舖設定區】\n" + src.slice(a + 1, b).trim() + "\n";
+  })();
+
+  // ---------- 清理貼上的內容 ----------
+  function cleanCode(text) {
+    text = text.replace(/\r\n?/g, "\n").replace(/ /g, " ");
+    if (/```/.test(text)) {                       // 只取 ``` 程式碼框裡面的內容（AI 前後的說明文字丟掉）
+      const blocks = [...text.matchAll(/```[^\n]*\n([\s\S]*?)(```|$)/g)].map(m => m[1]);
+      if (blocks.join("").trim()) text = blocks.join("\n");
+      else text = text.replace(/^\s*```.*$/gm, "");
+    }
+    return text.trim() + "\n";
+  }
+  const looksLikeHTML = t => /<!doctype|<html[\s>]|<\/?head[\s>]|<\/?body[\s>]|<\/?script[\s>]|<\/?style[\s>]|<canvas/i.test(t);
+
+  // ---------- 錯誤訊息翻成中文 ----------
+  const ZH_RULES = [
+    [/Unexpected end of input/, () => "程式好像沒寫完：可能少了結尾的 ] 或 } 或 )"],
+    [/missing \) after argument list/, () => "少了右括號 )"],
+    [/Invalid or unexpected token/, () => "有看不懂的符號：常見原因是用了全形符號（“ ” ， ； ： （ ）），或文字的引號 \" 沒有成對"],
+    [/Unexpected string/, () => "兩段文字中間可能少了逗號 ,"],
+    [/Unexpected number/, () => "數字前面可能少了逗號 , 或冒號 :"],
+    [/Unexpected identifier '?([^']*)'?/, m => `「${m[1]}」前面可能少了逗號 , 或冒號 :`],
+    [/Unexpected token '?([^']*)'?/, m => `「${m[1]}」這個符號放錯位置：常見原因是少了逗號 ,、多了括號，或括號沒有成對`],
+    [/Identifier '([^']+)' has already been declared/, m => `${m[1]} 被宣告了兩次：同一個名稱只能出現一次 let／const`],
+    [/Assignment to constant variable/, () => "const 宣告的變數不能再重新指定，請把那一行改成 let"],
+    [/(\S+) is not defined/, m => `找不到「${m[1]}」：可能拼錯字，或文字忘了加引號 " "`],
+    [/Cannot read propert/, () => "讀取了不存在的資料（例如陣列只有 3 項卻讀第 5 項）"],
+    [/is not a function/, () => "把不是函式的東西當成函式呼叫了"],
+  ];
+  function zhMessage(msg) {
+    for (const [re, f] of ZH_RULES) { const m = msg.match(re); if (m) return f(m); }
+    return "程式有錯誤";
+  }
+
+  // 語法檢查：包成「不會執行」的函式交給瀏覽器解析，才拿得到錯誤的行號
+  function syntaxCheck(code) {
+    let err = null;
+    const onErr = e => { err = { msg: e.message.replace(/^Uncaught\s+/, "").replace(/Failed to execute .*?:\s*/, ""), line: e.lineno - 1 }; e.preventDefault(); };
+    window.addEventListener("error", onErr);
+    const s = document.createElement("script");
+    s.textContent = "void function () {\n" + code + "\n};";
+    document.head.appendChild(s); s.remove();
+    window.removeEventListener("error", onErr);
+    return err;
+  }
+
+  // 執行設定程式碼：放在獨立的區塊裡，只讀出設定變數，不會動到遊戲的其他東西
+  function runCode(code) {
+    const body = "const __out = {};\n{\n" + code + "\n;" + KEYS.map(k => `__out.${k} = ${k};`).join(" ") + "\n}\nreturn __out;";
+    return new Function(...KEYS, body)();
+  }
+  let lineBase = null;
+  function runtimeLine(e) {
+    if (lineBase === null) {   // 量出 new Function 的行號偏移
+      try { new Function("throw new Error()")(); } catch (x) { const m = /<anonymous>:(\d+):/.exec(x.stack || ""); lineBase = m ? +m[1] : -1; }
+    }
+    const m = /<anonymous>:(\d+):/.exec(e.stack || "");
+    return m && lineBase > 0 ? +m[1] - lineBase - 1 : 0;
+  }
+
+  // ---------- 檢查設定內容 ----------
+  const show = v => { try { return JSON.stringify(v); } catch (e) { return String(v); } };
+  const isNum = v => typeof v === "number" && isFinite(v);
+  const isStr = v => typeof v === "string";
+  function validate(c) {
+    const errs = [];
+    // 沒寫到的設定沿用目前的值（點餐表單產生的程式碼只有店名、菜單、加料）；但至少要認得一項
+    if (KEYS.every(k => c[k] === undefined)) {
+      errs.push("找不到任何店舖設定（例如 MENU、TOPPINGS）\n→ 請確認貼上的是 AI 輸出的程式碼，變數名稱沒有被改掉");
+      return errs;
+    }
+    const cur = currentValues();
+    KEYS.forEach(k => { if (c[k] === undefined) c[k] = cur[k]; });
+    const num = (k, min, max, unit = "") => {
+      if (!isNum(c[k])) errs.push(`${k} 要是數字（不要加引號），現在是 ${show(c[k])}`);
+      else if (c[k] < min || c[k] > max) errs.push(`${k} 要在 ${min}～${max}${unit} 之間，現在是 ${c[k]}`);
+    };
+    const strList = (k, max) => {
+      if (!Array.isArray(c[k]) || c[k].length === 0) errs.push(`${k} 要是一個陣列 [ ]，而且至少要有 1 項`);
+      else {
+        if (c[k].length > max) errs.push(`${k} 最多 ${max} 項（畫面放不下），現在有 ${c[k].length} 項`);
+        c[k].forEach((v, i) => { if (!isStr(v) || !v.trim()) errs.push(`${k} 第 ${i + 1} 項要是文字（用引號 " " 包起來），現在是 ${show(v)}`); });
+      }
+    };
+    if (!isStr(c.SHOP_NAME) || !c.SHOP_NAME.trim()) errs.push(`SHOP_NAME 要是文字（用引號 " " 包起來），現在是 ${show(c.SHOP_NAME)}`);
+
+    if (!Array.isArray(c.MENU) || c.MENU.length === 0) errs.push("MENU 要是一個陣列 [ ]，而且至少要有 1 項飲料");
+    else {
+      if (c.MENU.length > 8) errs.push(`MENU 最多 8 項飲料（畫面放不下），現在有 ${c.MENU.length} 項`);
+      c.MENU.forEach((m, i) => {
+        const at = `MENU 第 ${i + 1} 項`;
+        if (!m || typeof m !== "object") { errs.push(`${at} 要寫成 { name: ..., price: ..., color: ..., emoji: ... }`); return; }
+        if (!isStr(m.name) || !m.name.trim()) errs.push(`${at} 少了 name（飲料名稱，要用引號）`);
+        if (!isNum(m.price)) errs.push(`${at}（${m.name || "?"}）的 price 要是數字（不要加引號），現在是 ${show(m.price)}`);
+        else if (m.price < 0) errs.push(`${at}（${m.name}）的 price 不能是負數`);
+        if (!isStr(m.color) || !/^#[0-9a-fA-F]{6}$/.test(m.color)) errs.push(`${at}（${m.name || "?"}）的 color 要寫成 "#rrggbb"（例如 "#b5521b"），現在是 ${show(m.color)}`);
+        if (!isStr(m.emoji)) errs.push(`${at}（${m.name || "?"}）少了 emoji（圖示，要用引號，例如 "🧋"）`);
+      });
+    }
+    if (!Array.isArray(c.TOPPINGS)) errs.push("TOPPINGS 要是一個陣列 [ ]（不加料就寫成空陣列 []）");
+    else {
+      if (c.TOPPINGS.length > 5) errs.push(`TOPPINGS 最多 5 項加料（畫面放不下），現在有 ${c.TOPPINGS.length} 項`);
+      c.TOPPINGS.forEach((tp, i) => {
+        const at = `TOPPINGS 第 ${i + 1} 項`;
+        if (!tp || typeof tp !== "object") { errs.push(`${at} 要寫成 { name: ..., color: ..., emoji: ... }`); return; }
+        if (!isStr(tp.name) || !tp.name.trim()) errs.push(`${at} 少了 name（加料名稱，要用引號）`);
+        if (!isStr(tp.color) || !/^#[0-9a-fA-F]{6}$/.test(tp.color)) errs.push(`${at}（${tp.name || "?"}）的 color 要寫成 "#rrggbb"（例如 "#2b1a10"），現在是 ${show(tp.color)}`);
+        if (!isStr(tp.emoji)) errs.push(`${at}（${tp.name || "?"}）少了 emoji（圖示，要用引號，例如 "⚫"）`);
+      });
+    }
+    num("TOPPING_PRICE", 0, 1000, " 元");
+    strList("SUGAR", 6);
+    strList("ICE", 5);
+    strList("CUSTOMERS", 50);
+    num("GAME_TIME", 10, 1800, " 秒");
+
+    if (!Array.isArray(c.RANKS) || c.RANKS.length === 0) errs.push("RANKS 要是一個陣列 [ ]，而且至少要有 1 個職等");
+    else {
+      if (c.RANKS.length > 10) errs.push(`RANKS 最多 10 個職等，現在有 ${c.RANKS.length} 個`);
+      c.RANKS.forEach((r, i) => {
+        const at = `RANKS 第 ${i + 1} 階`;
+        if (!r || typeof r !== "object") { errs.push(`${at} 要寫成 { name: ..., badge: ..., patience: ..., goal: ... }`); return; }
+        if (!isStr(r.name) || !r.name.trim()) errs.push(`${at} 少了 name（職等名稱，要用引號）`);
+        if (!isStr(r.badge)) errs.push(`${at}（${r.name || "?"}）少了 badge（徽章，要用引號，例如 "⭐"）`);
+        if (!isNum(r.patience) || r.patience < 3 || r.patience > 600) errs.push(`${at}（${r.name || "?"}）的 patience（顧客耐心秒數）要是 3～600 的數字，現在是 ${show(r.patience)}`);
+        if (!Number.isInteger(r.goal) || r.goal < 1 || r.goal > 50) errs.push(`${at}（${r.name || "?"}）的 goal（做對幾杯晉升）要是 1～50 的整數，現在是 ${show(r.goal)}`);
+      });
+    }
+    if (!Number.isInteger(c.DEMOTE_LOST) || c.DEMOTE_LOST < 1 || c.DEMOTE_LOST > 20) errs.push(`DEMOTE_LOST 要是 1～20 的整數，現在是 ${show(c.DEMOTE_LOST)}`);
+    num("DWELL_TIME", 0.2, 3, " 秒");
+    num("LAYOUT_WIDTH", 0.4, 1);
+    num("TIP_RATE", 0, 5);
+    num("WRONG_COST", 0, 10000, " 元");
+    return errs;
+  }
+
+  // 程式碼 → 檢查 → 回傳 { cfg, code } 或 { error, line, raw, code }
+  function compile(rawText) {
+    if (!rawText.trim()) return { error: "框框是空的：請把 AI 給你的設定貼進來", noAI: true };
+    if (looksLikeHTML(rawText))
+      return { error: "你貼的好像是整份網頁（HTML），這裡只能貼「店舖設定區」那一段。\n→ 請跟 AI 說：「只要輸出店舖設定區，不要整份 HTML」", noAI: true };
+    const code = cleanCode(rawText);
+    const se = syntaxCheck(code);
+    if (se) {
+      const prev = /Unexpected (token|identifier|string|number)/.test(se.msg) ? "（問題常常出在這一行，或上一行的結尾）" : "";
+      return { error: zhMessage(se.msg) + prev, line: se.line, raw: se.msg, code };
+    }
+    let cfg;
+    try { cfg = runCode(code); }
+    catch (e) { return { error: zhMessage(e.message), line: runtimeLine(e), raw: `${e.name}: ${e.message}`, code }; }
+    const errs = validate(cfg);
+    if (errs.length) return { error: "設定內容有問題：\n• " + errs.join("\n• "), code };
+    return { cfg, code };
+  }
+
+  // 套用到遊戲：重排站點、回到校準畫面（鏡頭與名片校準不動）
+  function applyConfig(cfg) {
+    SHOP_NAME = cfg.SHOP_NAME; MENU = cfg.MENU; TOPPINGS = cfg.TOPPINGS; TOPPING_PRICE = cfg.TOPPING_PRICE;
+    SUGAR = cfg.SUGAR; ICE = cfg.ICE;
+    GAME_TIME = cfg.GAME_TIME; RANKS = cfg.RANKS; DEMOTE_LOST = cfg.DEMOTE_LOST;
+    DWELL_TIME = cfg.DWELL_TIME; LAYOUT_WIDTH = cfg.LAYOUT_WIDTH; TIP_RATE = cfg.TIP_RATE;
+    WRONG_COST = cfg.WRONG_COST; CUSTOMERS = cfg.CUSTOMERS;
+    buildStations();
+    state = "calibrate"; banner = null; order = null; cup = emptyCup(); rank = 0; rankOK = 0; rankLost = 0;
+    popups = []; resetDwell();
+  }
+
+  const storage = {
+    get() { try { return localStorage.getItem(STORE_KEY); } catch (e) { return null; } },
+    set(v) { try { localStorage.setItem(STORE_KEY, v); } catch (e) {} },
+    del() { try { localStorage.removeItem(STORE_KEY); } catch (e) {} },
+  };
+
+  // ---------- 面板 ----------
+  let currentCode = DEFAULT_CODE;   // 目前遊戲正在使用的設定
+  let lastErrorText = "";
+  const esc = s => String(s).replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
+  function setMsg(kind, html) { msgBox.className = kind; msgBox.innerHTML = html; }
+  function updateBtn() { $("editBtn").textContent = storage.get() ? "✏️ 修改店舖（E）・已儲存" : "✏️ 修改店舖（E）"; }
+
+  function openEditor() {
+    panel.classList.add("open");
+    if (!codeBox.value.trim()) codeBox.value = currentCode;
+    reqBox.focus();
+  }
+  function closeEditor() {
+    panel.classList.remove("open");
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  }
+
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+    try {                                          // 備用：舊方法
+      const t = document.createElement("textarea"); t.value = text; t.style.position = "fixed"; t.style.opacity = "0";
+      document.body.appendChild(t); t.select(); const ok = document.execCommand("copy"); t.remove(); return ok;
+    } catch (e) { return false; }
+  }
+
+  function promptText(code) {
+    const req = reqBox.value.trim() || "（請在這裡寫你想改什麼）";
+    return "以下是一個手搖飲遊戲的「店舖設定區」程式碼。\n" +
+      "請只修改這一段，不要新增 HTML、不要動其他程式：\n" +
+      `【修改需求】${req}\n` +
+      "請輸出修改後的完整設定區，並在修改處加註解。\n" +
+      "（規則：保留所有變數名稱，不要省略任何一項；color 用 \"#rrggbb\" 格式；用 ```javascript 程式碼框輸出）\n\n" +
+      "```javascript\n" + code.trim() + "\n```\n";
+  }
+
+  $("edCopy").onclick = async () => {
+    // 框裡是正常的設定就用框裡的（學生可能先手動改過）；空的或貼了 HTML 就用遊戲目前的設定
+    const raw = codeBox.value;
+    const code = raw.trim() && !looksLikeHTML(raw) ? cleanCode(raw) : currentCode;
+    const ok = await copyText(promptText(code));
+    setMsg(ok ? "ok" : "err", ok
+      ? "✔ 已複製！到 ChatGPT／Gemini 按 Ctrl+V 貼上送出。\nAI 回答後，把整段回答貼到上面的框，再按「套用」。"
+      : "✘ 複製失敗：請手動全選上面的框（Ctrl+A）再按 Ctrl+C 複製。");
+    errBtn.style.display = "none";
+  };
+
+  $("edApply").onclick = () => {
+    const r = compile(codeBox.value);
+    if (r.error) {
+      let html = "✘ " + esc(r.error);
+      if (r.line > 0 && r.code) {
+        const lineText = (r.code.split("\n")[r.line - 1] || "").trim();
+        html = `✘ 第 ${r.line} 行：${esc(r.error)}` + (lineText ? `\n<code>${esc(lineText)}</code>` : "");
+      }
+      if (r.raw) html += `\n<small>原始訊息：${esc(r.raw)}</small>`;
+      html += "\n\n遊戲還在用上一次的設定，沒有壞掉。" + (r.noAI ? "" : "可以按「複製錯誤訊息給 AI」請它修正。");
+      setMsg("err", html);
+      lastErrorText = "我把你給的「店舖設定區」貼進遊戲，出現這個錯誤：\n" +
+        (r.line > 0 ? `第 ${r.line} 行：` : "") + r.error + (r.raw ? `\n（原始訊息：${r.raw}）` : "") +
+        "\n請修正後重新輸出完整的店舖設定區（只要這一段，不要 HTML），用 ```javascript 程式碼框輸出。\n\n" +
+        "```javascript\n" + (r.code || "").trim() + "\n```\n";
+      errBtn.style.display = r.noAI ? "none" : "";
+      return;
+    }
+    applyConfig(r.cfg);
+    currentCode = r.code; codeBox.value = r.code;
+    storage.set(r.code); updateBtn();
+    errBtn.style.display = "none";
+    setMsg("ok", `✔ 套用成功！飲料 ${MENU.length} 項、加料 ${TOPPINGS.length} 項（加料 $${TOPPING_PRICE}）、職等 ${RANKS.length} 階。\n鏡頭和名片校準都保留著，關掉這個面板（Esc）就可以按 Space 開始營業。`);
+    popup("✔ 已套用新的店舖設定", W / 2, 300, "#7CFF9B");
+  };
+
+  errBtn.onclick = async () => {
+    const ok = await copyText(lastErrorText);
+    errBtn.textContent = ok ? "✔ 已複製，貼給 AI" : "✘ 複製失敗";
+    setTimeout(() => { errBtn.textContent = "📋 複製錯誤訊息給 AI"; }, 2000);
+  };
+
+  $("edReset").onclick = () => {
+    if (!confirm("要還原成原本的店舖設定嗎？（框裡的內容會被換掉）")) return;
+    const r = compile(DEFAULT_CODE);
+    if (r.cfg) applyConfig(r.cfg);
+    currentCode = DEFAULT_CODE; codeBox.value = DEFAULT_CODE;
+    storage.del(); updateBtn(); errBtn.style.display = "none";
+    setMsg("ok", "✔ 已還原成預設設定。");
+    popup("↩ 已還原預設設定", W / 2, 300, "#ffe9c7");
+  };
+
+  $("editBtn").onclick = () => panel.classList.contains("open") ? closeEditor() : openEditor();
+  $("edClose").onclick = closeEditor;
+  window.addEventListener("keydown", e => {
+    if (e.target.closest && e.target.closest("#editor")) {      // 在面板裡打字：只處理 Esc 關閉
+      if (e.key === "Escape") { e.preventDefault(); closeEditor(); }
+      return;
+    }
+    if ((e.key === "e" || e.key === "E") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault(); panel.classList.contains("open") ? closeEditor() : openEditor();
+    }
+  });
+
+  // ---------- 開啟頁面時：載入上次成功套用的設定 ----------
+  const saved = storage.get();
+  if (saved) {
+    const r = compile(saved);
+    if (r.cfg) { applyConfig(r.cfg); currentCode = r.code; popup("已載入上次儲存的店舖設定（按 E 查看）", W / 2, 300, "#ffe9c7"); }
+    else storage.del();
+  }
+  codeBox.value = currentCode;
+  updateBtn();
+})();
+</script>
+</body>
+</html>

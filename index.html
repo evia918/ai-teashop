@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 體感手搖飲店｜課堂講義</title>
+<style>
+  :root {
+    --bg: #fbf6ee; --paper: #fffdf9; --ink: #2e2118; --muted: #7a6656; --line: #e6d8c6;
+    --brand: #e8603c; --brand-ink: #fff; --tea: #8a5a35; --ok: #2a8a52; --warn: #b5541b;
+    --soft: #f5ebdd; --chip: #fde6d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1c1612; --paper: #261e18; --ink: #f1e6d8; --muted: #b9a593; --line: #3e3128;
+      --brand: #ff8a62; --brand-ink: #1c1612; --tea: #d6a77a; --ok: #5fd08f; --warn: #ffab73;
+      --soft: #30261f; --chip: #3f2c22;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c1612; --paper: #261e18; --ink: #f1e6d8; --muted: #b9a593; --line: #3e3128;
+    --brand: #ff8a62; --brand-ink: #1c1612; --tea: #d6a77a; --ok: #5fd08f; --warn: #ffab73;
+    --soft: #30261f; --chip: #3f2c22;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.75; font-size: 17px;
+    font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 0 16px 80px; }
+  h1, h2, h3 { line-height: 1.35; margin: 0; }
+  a { color: var(--brand); }
+
+  /* 封面 */
+  .cover { padding: 48px 0 28px; border-bottom: 2px solid var(--ink); margin-bottom: 8px; }
+  .cover .kicker { color: var(--brand); font-weight: 700; letter-spacing: .08em; font-size: 15px; }
+  .cover h1 { font-size: clamp(30px, 6vw, 46px); margin: 6px 0 10px; }
+  .cover p { margin: 0; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; font-size: 15px; color: var(--muted); }
+  .meta b { color: var(--ink); }
+
+  /* 目錄 */
+  nav.toc { display: flex; flex-wrap: wrap; gap: 6px; padding: 14px 0; position: sticky; top: 0; background: var(--bg); z-index: 5;
+    border-bottom: 1px solid var(--line); }
+  nav.toc a { text-decoration: none; color: var(--ink); background: var(--soft); border-radius: 999px; padding: 3px 12px; font-size: 14px; }
+  nav.toc a:hover { background: var(--chip); }
+
+  section { padding: 34px 0 6px; scroll-margin-top: 92px; }
+  input::placeholder { color: var(--muted); opacity: .55; }
+  section > h2 { font-size: 26px; display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  section > h2 .no { color: var(--brand); font-size: 18px; font-weight: 800; min-width: 2.2em; }
+  h3 { font-size: 19px; margin: 22px 0 8px; }
+  p { margin: 8px 0; }
+  .lead { font-size: 19px; }
+
+  /* 流程 */
+  .flow { list-style: none; padding: 0; margin: 16px 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; counter-reset: f; }
+  .flow li { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; position: relative; counter-increment: f; }
+  .flow li::before { content: counter(f); position: absolute; top: -10px; left: 12px; background: var(--brand); color: var(--brand-ink);
+    width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; font-weight: 800; }
+  .flow li b { display: block; font-size: 17px; margin-top: 4px; }
+  .flow li span { color: var(--muted); font-size: 15px; }
+  .flow li.loop { border-style: dashed; }
+
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 16px; background: var(--paper); }
+  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); font-weight: 700; white-space: nowrap; }
+  td.t { white-space: nowrap; color: var(--brand); font-weight: 700; }
+
+  .note { border-left: 4px solid var(--brand); background: var(--paper); padding: 10px 14px; margin: 12px 0; border-radius: 0 8px 8px 0; }
+  .note.tip { border-color: var(--ok); }
+  kbd { font-family: Consolas, monospace; font-size: 14px; background: var(--paper); border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 5px; padding: 0 6px; }
+
+  /* 名片示意 */
+  .card-demo { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: center; margin: 12px 0; }
+  .namecard { aspect-ratio: 9 / 5.4; background: #f7d72a; border-radius: 6px; position: relative; box-shadow: 0 4px 14px rgba(0,0,0,.18);
+    background-image: linear-gradient(rgba(0,0,0,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,.07) 1px, transparent 1px);
+    background-size: 9px 9px; color: #222; font-weight: 900; display: grid; place-items: center; font-size: 15px; line-height: 1.2; text-align: center; }
+  .namecard::before, .namecard::after { content: ""; position: absolute; top: 50%; width: 13%; aspect-ratio: 1; background: #1b1b1b; border-radius: 50%; transform: translateY(-50%); }
+  .namecard::before { left: 7%; } .namecard::after { right: 7%; }
+  .card-demo ul { margin: 0; padding-left: 1.2em; }
+
+  /* 表單 */
+  .form { background: var(--paper); border: 2px solid var(--ink); border-radius: 14px; padding: 18px 18px 8px; margin: 14px 0; }
+  .form h3 { margin-top: 4px; }
+  .form .hint { color: var(--muted); font-size: 15px; margin: 2px 0 8px; }
+  .grid { display: grid; grid-template-columns: 2.2em 1fr 9em; gap: 8px 10px; align-items: center; }
+  .grid.top { grid-template-columns: 2.2em 1fr; }
+  .grid .n { color: var(--muted); font-weight: 700; text-align: right; }
+  .grid .hd { font-size: 14px; color: var(--muted); }
+  input[type=text], input[type=number] { width: 100%; font: inherit; font-size: 17px; padding: 7px 10px; border-radius: 8px;
+    border: 1.5px solid var(--line); background: var(--bg); color: var(--ink); }
+  input:focus { outline: 2px solid var(--brand); outline-offset: 1px; border-color: transparent; }
+  input.bad { border-color: #d64545; background: rgba(214,69,69,.08); }
+  .price { display: flex; align-items: center; gap: 6px; }
+  .price input { text-align: right; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 14px 0; }
+  button { font: inherit; font-size: 17px; font-weight: 700; padding: 9px 18px; border-radius: 10px; border: 0; cursor: pointer;
+    background: var(--soft); color: var(--ink); }
+  button.main { background: var(--brand); color: var(--brand-ink); }
+  button:hover { filter: brightness(1.06); }
+  button:disabled { opacity: .5; cursor: default; }
+  .linkbtn { background: none; padding: 0; font-weight: 400; color: var(--muted); text-decoration: underline; font-size: 14px; }
+  #formMsg { margin: 6px 0; font-size: 15px; white-space: pre-line; }
+  #formMsg.err { color: #d64545; } #formMsg.ok { color: var(--ok); }
+  #promptOut { width: 100%; min-height: 220px; font-family: Consolas, "Microsoft JhengHei", monospace; font-size: 14px; line-height: 1.5;
+    padding: 10px; border-radius: 10px; border: 1.5px dashed var(--line); background: var(--bg); color: var(--ink); resize: vertical; }
+  .result { display: none; }
+  .result.show { display: block; }
+  .bigbtn { display: inline-block; text-decoration: none; background: var(--ink); color: var(--bg); padding: 10px 20px; border-radius: 10px; font-weight: 700; }
+
+  .steps-list { padding-left: 1.3em; }
+  .steps-list li { margin: 6px 0; }
+  details { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 10px 0; }
+  summary { cursor: pointer; font-weight: 700; }
+  footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); margin-top: 40px; padding-top: 14px; }
+
+  @media (max-width: 640px) {
+    body { font-size: 16px; }
+    .flow { grid-template-columns: 1fr 1fr; }
+    .card-demo { grid-template-columns: 1fr; }
+    .namecard { max-width: 240px; }
+    .grid { grid-template-columns: 1.6em 1fr 7.5em; }
+    th { white-space: normal; }
+  }
+
+  /* 列印：表單變成學習單，按鈕與提示詞框隱藏 */
+  @media print {
+    :root { --bg: #fff; --paper: #fff; --ink: #000; --muted: #444; --line: #999; --soft: #eee; }
+    body { font-size: 12.5pt; }
+    nav.toc, button, .no-print, .result, #formMsg { display: none !important; }
+    section { padding-top: 14px; break-inside: avoid-page; }
+    .form { break-inside: avoid; }
+    input[type=text], input[type=number] { border: 0; border-bottom: 1px solid #000; border-radius: 0; background: none; }
+    a { color: #000; text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<header class="cover">
+  <div class="kicker">社團活動｜電子商務科・資料處理科</div>
+  <h1>🧋 AI 體感手搖飲店</h1>
+  <p class="lead">用 AI 設計你們的飲料店，再拿起名片，在鏡頭前當一回店長。</p>
+  <div class="meta">
+    <span><b>時間</b> 一節課（50 分鐘）</span>
+    <span><b>分組</b> 兩人一組</span>
+    <span><b>工具</b> 電腦＋webcam＋名片、ChatGPT 或 Gemini</span>
+  </div>
+</header>
+
+<nav class="toc" aria-label="目錄">
+  <a href="#goal">今天的任務</a><a href="#flow">流程</a><a href="#play">怎麼玩</a>
+  <a href="#design">① 設計店舖</a><a href="#ai">② 交給 AI</a><a href="#apply">③ 貼回遊戲</a>
+  <a href="#help">卡關怎麼辦</a><a href="#more">進階挑戰</a>
+</nav>
+
+<!-- ───────────── 今天的任務 ───────────── -->
+<section id="goal">
+  <h2><span class="no">00</span>今天的任務</h2>
+  <p>你們要開一家手搖飲店。菜單、價格、加料由你們決定；把設計交給 AI，請它變成遊戲看得懂的設定；最後拿起名片，在鏡頭前幫顧客做飲料，從實習生一路升到店長。</p>
+  <table>
+    <tr><th>學到什麼</th><th>怎麼做到</th></tr>
+    <tr><td>把想法講清楚給 AI 聽</td><td>填好點餐表單，產生一份「提示詞」</td></tr>
+    <tr><td>看懂、檢查 AI 的答案</td><td>把 AI 的回答貼回遊戲，遊戲會告訴你哪裡不對</td></tr>
+    <tr><td>電腦怎麼「看見」東西</td><td>鏡頭追蹤名片上的兩個黑點，讓畫面上的杯子跟著你的手移動</td></tr>
+  </table>
+</section>
+
+<!-- ───────────── 流程 ───────────── -->
+<section id="flow">
+  <h2><span class="no">01</span>整堂課的流程</h2>
+  <ol class="flow">
+    <li><b>設計店舖</b><span>填表單：飲料、加料、價格</span></li>
+    <li><b>產生提示詞</b><span>按一下，表單幫你寫好要給 AI 的話</span></li>
+    <li><b>交給 AI</b><span>貼到 ChatGPT 或 Gemini，請它產生設定碼</span></li>
+    <li><b>貼回遊戲</b><span>遊戲按 <kbd>E</kbd>，貼上、套用</span></li>
+    <li><b>拿名片試玩</b><span>做飲料、拚晉升</span></li>
+    <li class="loop"><b>修改再挑戰</b><span>想加新功能？再問 AI 一次</span></li>
+  </ol>
+
+  <h3>時間安排</h3>
+  <table>
+    <tr><th>時間</th><th>做什麼</th></tr>
+    <tr><td class="t">0–5 分</td><td>老師示範：拿名片玩一輪</td></tr>
+    <tr><td class="t">5–12 分</td><td>開遊戲、允許鏡頭、讓名片被認出來，先試玩一局</td></tr>
+    <tr><td class="t">12–17 分</td><td>填點餐表單 → 產生提示詞 → 交給 AI</td></tr>
+    <tr><td class="t">17–40 分</td><td>貼回遊戲試玩；想改什麼再問 AI；中途兩人交換角色</td></tr>
+    <tr><td class="t">40–50 分</td><td>上台展示 2–3 組，全班票選最想去的店</td></tr>
+  </table>
+
+  <h3>兩人分工</h3>
+  <table>
+    <tr><th>角色</th><th>工作</th></tr>
+    <tr><td>🧑‍🍳 店員</td><td>拿名片做飲料、試玩、說出哪裡不順</td></tr>
+    <tr><td>🧑‍💼 店長</td><td>填表單、操作 ChatGPT／Gemini、把設定貼回遊戲</td></tr>
+  </table>
+  <p>做完一輪就<b>交換角色</b>，兩個人都要玩到、也都要跟 AI 對話過。</p>
+</section>
+
+<!-- ───────────── 怎麼玩 ───────────── -->
+<section id="play">
+  <h2><span class="no">02</span>遊戲怎麼玩</h2>
+
+  <h3>拿名片的方法</h3>
+  <div class="card-demo">
+    <div class="namecard" aria-label="名片示意圖：黃色名片左右各有一個黑點">作伙!!<br>來弘光!!</div>
+    <ul>
+      <li>兩個黑點<b>正面對著鏡頭</b>，名片不要斜一邊</li>
+      <li>手指捏住名片<b>下緣中間</b>，不要擋住黑點</li>
+      <li>名片離鏡頭約 <b>40–70 公分</b></li>
+      <li>兩個黑點變<b>綠色</b>＝電腦認出名片了</li>
+    </ul>
+  </div>
+  <div class="note tip">畫面跳出「📇 把名片轉正，面對鏡頭」，代表電腦只看到一個黑點。把名片轉正就好。</div>
+
+  <h3>做一杯飲料</h3>
+  <ol class="steps-list">
+    <li>看上方的<b>顧客點單</b>：飲料｜糖度｜冰塊｜加料</li>
+    <li>移動名片，讓畫面上的杯子停在站點上 <b>0.7 秒</b>（站點下方的進度條跑滿＝選好了）</li>
+    <li>飲料、糖度、冰塊、加料都選好，移到右下角 <b>🛎 出餐</b></li>
+    <li>做對加錢，出得快還有小費；做錯扣材料費；顧客等太久會離開</li>
+  </ol>
+
+  <h3>店員職等</h3>
+  <table>
+    <tr><th>職等</th><th>顧客耐心</th><th>晉升</th><th>流失 2 位顧客</th></tr>
+    <tr><td>🔰 實習生</td><td>45 秒</td><td>做對 3 杯</td><td>遊戲結束：「請稍作休息再加油」</td></tr>
+    <tr><td>⭐ 店員</td><td>30 秒</td><td>做對 3 杯</td><td>降回實習生</td></tr>
+    <tr><td>👑 店長</td><td>20 秒</td><td>做對 3 杯 → <b>🏆 店長認證</b></td><td>降回店員</td></tr>
+  </table>
+  <p>一局最多 3 分鐘，時間到會頒發「今日職等」。</p>
+</section>
+
+<!-- ───────────── ① 設計店舖（表單） ───────────── -->
+<section id="design">
+  <h2><span class="no">03</span>步驟 ①　設計你們的店</h2>
+  <p>填好下面的表單，按「產生提示詞」。飲料至少 2 種；加料可以不填。</p>
+
+  <form class="form" id="shopForm" autocomplete="off" onsubmit="return false">
+    <h3>店名</h3>
+    <div class="grid top">
+      <span class="n">🏪</span>
+      <input type="text" id="shopName" maxlength="10" placeholder="例：午後陽光茶飲（最多 10 字）">
+    </div>
+
+    <h3>飲料菜單（最多 5 種）</h3>
+    <p class="hint">名稱建議 2–5 個字，畫面上的按鈕才放得下。價格寫整數，10～300 元。</p>
+    <div class="grid" id="drinkGrid">
+      <span></span><span class="hd">飲料名稱</span><span class="hd">售價（元）</span>
+    </div>
+
+    <h3>加料（0～5 種，可以不填）</h3>
+    <p class="hint">顧客點單時，大約一半的人會加一種料。名稱建議 2–4 個字。</p>
+    <div class="grid top" id="toppingGrid"></div>
+    <div class="grid top" style="margin-top:10px">
+      <span class="n">💲</span>
+      <div class="price">加料價格（每種都一樣）<input type="number" id="toppingPrice" min="0" max="50" step="1" placeholder="10" style="width:6.5em">元</div>
+    </div>
+
+    <div class="row">
+      <button type="button" class="main" id="makePrompt">✨ 產生提示詞</button>
+      <button type="button" class="linkbtn no-print" id="clearForm">清除表單</button>
+    </div>
+    <div id="formMsg" aria-live="polite"></div>
+
+    <div class="result" id="result">
+      <h3>給 AI 的提示詞</h3>
+      <p class="hint">按「複製提示詞」，再到下一步貼給 ChatGPT 或 Gemini。</p>
+      <textarea id="promptOut" readonly></textarea>
+      <div class="row">
+        <button type="button" class="main" id="copyPrompt">📋 複製提示詞</button>
+        <a class="bigbtn" href="game.html" target="_blank" rel="noopener">🎮 開啟遊戲</a>
+      </div>
+      <details class="no-print">
+        <summary>AI 連不上的時候（備案）</summary>
+        <p>學校網路連不到 ChatGPT／Gemini 時，可以直接產生設定碼（顏色、圖示用預設值，沒有 AI 幫你挑）。複製後一樣到遊戲按 <kbd>E</kbd> 貼上。</p>
+        <button type="button" id="copyFallback">📋 複製備用設定碼</button>
+      </details>
+    </div>
+  </form>
+</section>
+
+<!-- ───────────── ② 交給 AI ───────────── -->
+<section id="ai">
+  <h2><span class="no">04</span>步驟 ②　交給 AI</h2>
+  <ol class="steps-list">
+    <li>打開 <b>ChatGPT</b>（chatgpt.com）或 <b>Gemini</b>（gemini.google.com）</li>
+    <li>在對話框按 <kbd>Ctrl</kbd>+<kbd>V</kbd> 貼上提示詞，送出</li>
+    <li>AI 會回一段<b>程式碼</b>（灰色框框），後面還有幾句話說明它幫你挑的顏色</li>
+    <li>按程式碼框右上角的「複製」；或把整段回答選起來複製（說明文字一起貼也沒關係，遊戲會自己挑出程式碼）</li>
+  </ol>
+  <div class="note">讀一下 AI 的說明：它為什麼幫珍奶選這個顏色？你同意嗎？不同意就直接跟它說「拿鐵的顏色再淺一點」，請它重新輸出。</div>
+</section>
+
+<!-- ───────────── ③ 貼回遊戲 ───────────── -->
+<section id="apply">
+  <h2><span class="no">05</span>步驟 ③　貼回遊戲、開店</h2>
+  <ol class="steps-list">
+    <li>開啟遊戲（上面的「🎮 開啟遊戲」），允許使用鏡頭</li>
+    <li>按鍵盤 <kbd>E</kbd>（或右下角「✏️ 修改店舖」），右邊會打開設定面板</li>
+    <li>點一下大框框，按 <kbd>Ctrl</kbd>+<kbd>A</kbd> 全選，再按 <kbd>Ctrl</kbd>+<kbd>V</kbd> 貼上 AI 的回答</li>
+    <li>按 <b>✅ 套用</b>，看到綠色的「套用成功」就完成了</li>
+    <li>按 <kbd>Esc</kbd> 關掉面板，名片移到「開始營業」，開店！</li>
+  </ol>
+  <div class="note">放心貼：設定面板的大框框裡，原本裝的就是一小段 JavaScript「店舖設定」，不是整個網頁。貼上、套用只會換掉店名、菜單、加料這幾項，遊戲網頁本身不會被改掉。<b>不要用記事本打開 game.html 去貼</b>，那樣才會真的把網頁蓋掉。</div>
+  <div class="note tip">套用失敗也不用怕：遊戲會繼續用上一次的設定，不會壞掉。按「📋 複製錯誤訊息給 AI」，貼回 ChatGPT／Gemini，請它修正。</div>
+</section>
+
+<!-- ───────────── 卡關怎麼辦 ───────────── -->
+<section id="help">
+  <h2><span class="no">06</span>卡關怎麼辦</h2>
+  <table>
+    <tr><th>狀況</th><th>試試看</th></tr>
+    <tr><td>畫面一直顯示「找不到名片」</td><td>名片拿近一點、轉正；檢查手指有沒有擋到黑點；背後不要有大片黃色東西</td></tr>
+    <tr><td>黑點變紅色，或只有一個綠色</td><td>名片太斜或太遠。按 <kbd>D</kbd> 可以看偵測畫面</td></tr>
+    <tr><td>最右邊的按鈕點不太到</td><td>名片不用移到畫面最邊邊，游標會自動放大移動範圍</td></tr>
+    <tr><td>完全沒有鏡頭畫面</td><td>網址列旁邊的相機圖示 → 允許；還是不行就舉手</td></tr>
+    <tr><td>套用時說「你貼的好像是整份網頁」</td><td>AI 給太多了。跟它說：「只要輸出店舖設定的程式碼，不要整份 HTML」</td></tr>
+    <tr><td>套用時說「第 ○ 行有錯」</td><td>按「📋 複製錯誤訊息給 AI」，貼給 AI 請它修正</td></tr>
+    <tr><td>想回到原本的店</td><td>設定面板按「↩ 還原預設」</td></tr>
+  </table>
+</section>
+
+<!-- ───────────── 進階挑戰 ───────────── -->
+<section id="more">
+  <h2><span class="no">07</span>進階挑戰：再問 AI 一次</h2>
+  <p>店開好之後，可以在遊戲的設定面板上方輸入「想改什麼」，按「📋 複製給 AI」，請 AI 幫你改。<b>一次只提一個需求</b>，改完先試玩，再提下一個。</p>
+  <table>
+    <tr><th>科別</th><th>可以這樣問 AI</th></tr>
+    <tr><td>共用</td><td>把營業時間改成 120 秒，看看能不能在時間內升到店長</td></tr>
+    <tr><td>共用</td><td>把職等改成四階：在店員和店長中間加一個「儲備幹部」，耐心 25 秒</td></tr>
+    <tr><td>電商科</td><td>小費比例改成 50%，顧客等越短給越多</td></tr>
+    <tr><td>電商科</td><td>做錯一杯的材料損失改成飲料售價的一半</td></tr>
+    <tr><td>資處科</td><td>增加兩種糖度選項：「少糖」「微微糖」，看看點單會怎麼變</td></tr>
+    <tr><td>資處科</td><td>玩三局，把每局的營業額、出杯數、流失數記成表格，算出平均值</td></tr>
+  </table>
+  <div class="note">展示時請準備一句話：「我們的店最特別的地方是＿＿＿，AI 幫我們決定了＿＿＿。」</div>
+</section>
+
+<footer>
+  <details class="no-print">
+    <summary>給老師：使用與部署說明</summary>
+    <ul>
+      <li>本頁與 <code>game.html</code> 放在同一個 GitHub Pages 專案即可，網址為 HTTPS，瀏覽器會記住鏡頭權限。</li>
+      <li>遊戲的設定面板會把最後一次套用的設定存在這台電腦的瀏覽器裡；換班前請在面板按「↩ 還原預設」，或由還原卡重開機清除。</li>
+      <li>學生表單內容也會暫存在瀏覽器，可按「清除表單」。</li>
+      <li>網路不穩時，可把整個資料夾複製到隨身碟，直接雙擊 <code>index.html</code> 使用（表單與遊戲都可離線運作，只有 AI 需要連網）。</li>
+    </ul>
+  </details>
+  <p>AI 體感手搖飲店｜社團活動講義</p>
+</footer>
+</main>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const N = 5, STORE = "bubbleTeaShop.form.v1";
+
+  // ---------- 建立欄位 ----------
+  const dg = $("drinkGrid"), tg = $("toppingGrid");
+  for (let i = 1; i <= N; i++) {
+    dg.insertAdjacentHTML("beforeend",
+      `<span class="n">${i}</span>
+       <input type="text" id="dName${i}" maxlength="8" placeholder="例：${["珍珠奶茶", "冬瓜檸檬", "四季春", "芒果冰沙", "鮮奶綠"][i - 1]}">
+       <div class="price"><input type="number" id="dPrice${i}" min="10" max="300" step="1" placeholder="${[55, 45, 30, 65, 50][i - 1]}">元</div>`);
+    tg.insertAdjacentHTML("beforeend",
+      `<span class="n">${i}</span>
+       <input type="text" id="tName${i}" maxlength="6" placeholder="例：${["珍珠", "椰果", "布丁", "仙草", "芋圓"][i - 1]}">`);
+  }
+
+  // ---------- 暫存表單（同一台電腦重新整理不會消失）----------
+  const fields = () => [...document.querySelectorAll("#shopForm input")];
+  try { const s = JSON.parse(localStorage.getItem(STORE) || "{}"); fields().forEach(el => { if (s[el.id] != null) el.value = s[el.id]; }); } catch (e) {}
+  const save = () => { try { const s = {}; fields().forEach(el => s[el.id] = el.value); localStorage.setItem(STORE, JSON.stringify(s)); } catch (e) {} };
+  $("shopForm").addEventListener("input", e => { e.target.classList.remove("bad"); save(); });
+
+  $("clearForm").onclick = () => {
+    if (!confirm("要清除表單的所有內容嗎？")) return;
+    fields().forEach(el => { el.value = ""; el.classList.remove("bad"); });
+    save(); $("result").classList.remove("show"); msg("", "");
+  };
+
+  function msg(kind, text) { const m = $("formMsg"); m.className = kind; m.textContent = text; }
+  const clean = s => s.trim().replace(/["“”「」\\]/g, "");   // 引號會弄壞程式碼，先拿掉
+
+  // ---------- 讀取＋檢查 ----------
+  function readForm() {
+    const errs = [], warns = [];
+    fields().forEach(el => el.classList.remove("bad"));
+    const shop = clean($("shopName").value) || "我們的手搖飲";
+    const drinks = [], toppings = [], seen = new Set();
+    for (let i = 1; i <= N; i++) {
+      const nEl = $("dName" + i), pEl = $("dPrice" + i), name = clean(nEl.value), p = pEl.value.trim();
+      if (!name && !p) continue;
+      if (!name) { errs.push(`第 ${i} 種飲料有價格但沒有名稱`); nEl.classList.add("bad"); continue; }
+      const price = Number(p);
+      if (!p || !Number.isInteger(price) || price < 10 || price > 300) { errs.push(`「${name}」的價格要是 10～300 的整數`); pEl.classList.add("bad"); continue; }
+      if (seen.has(name)) { errs.push(`飲料「${name}」重複了`); nEl.classList.add("bad"); continue; }
+      seen.add(name);
+      if (name.length > 5) warns.push(`「${name}」比較長，按鈕上的字會縮小`);
+      drinks.push({ name, price });
+    }
+    if (drinks.length < 2) errs.push("飲料至少要填 2 種（名稱＋價格）");
+    for (let i = 1; i <= N; i++) {
+      const el = $("tName" + i), name = clean(el.value);
+      if (!name) continue;
+      if (toppings.includes(name)) { errs.push(`加料「${name}」重複了`); el.classList.add("bad"); continue; }
+      if (name.length > 4) warns.push(`加料「${name}」比較長，按鈕上的字會縮小`);
+      toppings.push(name);
+    }
+    let tPrice = 0;
+    if (toppings.length) {
+      const el = $("toppingPrice"), v = el.value.trim();
+      tPrice = Number(v);
+      if (!v || !Number.isInteger(tPrice) || tPrice < 0 || tPrice > 50) { errs.push("有加料的話，加料價格要填 0～50 的整數"); el.classList.add("bad"); }
+    }
+    return { shop, drinks, toppings, tPrice, errs, warns };
+  }
+
+  // ---------- 產生提示詞 ----------
+  function buildPrompt(f) {
+    const drinkLines = f.drinks.map((d, i) => `${i + 1}. ${d.name}／${d.price} 元`).join("\n");
+    const toppingLine = f.toppings.length ? `${f.toppings.join("、")}（每種加 ${f.tPrice} 元）` : "不提供加料";
+    return [
+      "你是手搖飲體感遊戲的「店舖設定助手」。請依照我們這一組設計的店，產生遊戲用的設定程式碼。",
+      "",
+      "【我們的店】",
+      `店名：${f.shop}`,
+      "飲料（名稱／售價）：",
+      drinkLines,
+      `加料：${toppingLine}`,
+      "",
+      "【請你幫我們決定】",
+      "1. 每種飲料在杯子裡的液體顏色（color），要像真的飲料，寫成 \"#rrggbb\"",
+      "2. 每種飲料一個 emoji 圖示",
+      f.toppings.length ? "3. 每種加料沉在杯底的顏色（color，\"#rrggbb\"）和一個 emoji 圖示" : "3. 沒有加料，TOPPINGS 請寫成空陣列 []",
+      "",
+      "【輸出規則】",
+      "1. 只輸出一個 ```javascript 程式碼框，不要輸出 HTML、不要寫其他程式",
+      "2. 名稱和價格照我們寫的，一個字都不要改",
+      "3. 變數名稱 SHOP_NAME、MENU、TOPPINGS、TOPPING_PRICE 不能改，格式完全照下面的範例：",
+      "```javascript",
+      'let SHOP_NAME = "店名";',
+      "let MENU = [",
+      '  { name: "飲料名稱", price: 50, color: "#c8a07a", emoji: "🧋" },',
+      "];",
+      "let TOPPINGS = [",
+      '  { name: "加料名稱", color: "#2b1a10", emoji: "⚫" },',
+      "];",
+      "let TOPPING_PRICE = 10;",
+      "```",
+      "4. 程式碼框後面，用兩三句話說明你為每種飲料挑的顏色和圖示",
+    ].join("\n");
+  }
+
+  // 備案：不經過 AI，直接用預設顏色產生設定碼
+  function buildFallback(f) {
+    const colors = ["#c8a07a", "#b5521b", "#a8c94f", "#f2b632", "#e8e0d0"];
+    const tColors = ["#2b1a10", "#f4f1e6", "#f2c14e", "#3a2a22", "#9b7bb8"];
+    const q = s => JSON.stringify(s);
+    return [
+      "```javascript",
+      `let SHOP_NAME = ${q(f.shop)};`,
+      "let MENU = [",
+      ...f.drinks.map((d, i) => `  { name: ${q(d.name)}, price: ${d.price}, color: "${colors[i]}", emoji: "🧋" },`),
+      "];",
+      "let TOPPINGS = [",
+      ...f.toppings.map((t, i) => `  { name: ${q(t)}, color: "${tColors[i]}", emoji: "🟤" },`),
+      "];",
+      `let TOPPING_PRICE = ${f.tPrice};`,
+      "```",
+    ].join("\n");
+  }
+
+  let last = null;
+  $("makePrompt").onclick = () => {
+    const f = readForm();
+    if (f.errs.length) { msg("err", "還差一點：\n• " + f.errs.join("\n• ")); $("result").classList.remove("show"); return; }
+    last = f;
+    $("promptOut").value = buildPrompt(f);
+    $("result").classList.add("show");
+    msg("ok", `✔ 已產生：飲料 ${f.drinks.length} 種、加料 ${f.toppings.length} 種。` + (f.warns.length ? "\n（提醒：" + f.warns.join("；") + "）" : ""));
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  async function copy(text, btn, label) {
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
+      try { const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); ok = document.execCommand("copy"); t.remove(); } catch (x) {}
+    }
+    btn.textContent = ok ? "✔ 已複製" : "✘ 請手動選取複製";
+    setTimeout(() => { btn.textContent = label; }, 1800);
+  }
+  $("copyPrompt").onclick = e => copy($("promptOut").value, e.currentTarget, "📋 複製提示詞");
+  $("copyFallback").onclick = e => { if (last) copy(buildFallback(last), e.currentTarget, "📋 複製備用設定碼"); };
+})();
+</script>
+</body>
+</html>
